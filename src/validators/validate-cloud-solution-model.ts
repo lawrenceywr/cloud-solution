@@ -1,0 +1,1148 @@
+import type {
+  CloudSolutionSliceInput,
+  Device,
+  IpAllocation,
+  Link,
+  NetworkSegment,
+  Port,
+  Rack,
+  ValidationIssue,
+} from "../domain"
+
+type ValidationSubject = {
+  code: ValidationIssue["code"]
+  message: string
+  severity: ValidationIssue["severity"]
+  subjectType: ValidationIssue["subjectType"]
+  subjectId: string
+  path?: string
+  entityRefs?: string[]
+  idSuffix?: string
+  blocking?: boolean
+}
+
+const subnetLikeSegmentTypes = new Set([
+  "subnet",
+  "mgmt",
+  "storage",
+  "service",
+])
+
+const severityRank: Record<ValidationIssue["severity"], number> = {
+  blocking: 0,
+  warning: 1,
+  informational: 2,
+}
+
+function createIssue(subject: ValidationSubject): ValidationIssue {
+  const primaryEntityRef = `${subject.subjectType}:${subject.subjectId}`
+  const entityRefs = [...new Set(subject.entityRefs ?? [primaryEntityRef])]
+    .sort((left, right) => left.localeCompare(right))
+
+  return {
+    id: [
+      subject.code,
+      subject.subjectType,
+      subject.subjectId,
+      subject.path,
+      subject.idSuffix ?? entityRefs.join("|"),
+    ]
+      .filter((value): value is string => typeof value === "string" && value.length > 0)
+      .join(":"),
+    severity: subject.severity,
+    code: subject.code,
+    message: subject.message,
+    subjectType: subject.subjectType,
+    subjectId: subject.subjectId,
+    path: subject.path,
+    entityRefs,
+    blocking: subject.blocking ?? subject.severity === "blocking",
+  }
+}
+
+function countDuplicates(values: string[]): string[] {
+  const counts = new Map<string, number>()
+
+  for (const value of values) {
+    counts.set(value, (counts.get(value) ?? 0) + 1)
+  }
+
+  return [...counts.entries()]
+    .filter(([, count]) => count > 1)
+    .map(([value]) => value)
+    .sort((left, right) => left.localeCompare(right))
+}
+
+function parseIpv4(value: string): number[] | null {
+  const parts = value.trim().split(".")
+  if (parts.length !== 4) {
+    return null
+  }
+
+  const octets = parts.map((part) => Number(part))
+  if (octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) {
+    return null
+  }
+
+  return octets
+}
+
+function ipv4ToNumber(octets: number[]): number {
+  return octets.reduce((value, octet) => value * 256 + octet, 0)
+}
+
+function parseIpv4Cidr(value: string): { network: number; prefix: number } | null {
+  const [ipPart, prefixPart] = value.trim().split("/")
+  if (!ipPart || !prefixPart) {
+    return null
+  }
+
+  const octets = parseIpv4(ipPart)
+  const prefix = Number(prefixPart)
+  if (!octets || !Number.isInteger(prefix) || prefix < 0 || prefix > 32) {
+    return null
+  }
+
+  return {
+    network: ipv4ToNumber(octets),
+    prefix,
+  }
+}
+
+function isIpv4InCidr(address: string, cidr: string): boolean {
+  const parsedAddress = parseIpv4(address)
+  const parsedCidr = parseIpv4Cidr(cidr)
+  if (!parsedAddress || !parsedCidr) {
+    return false
+  }
+
+  const mask =
+    parsedCidr.prefix === 0 ? 0 : (0xffffffff << (32 - parsedCidr.prefix)) >>> 0
+  const addressNumber = ipv4ToNumber(parsedAddress)
+
+  return (addressNumber & mask) === (parsedCidr.network & mask)
+}
+
+function validateSegment(segment: NetworkSegment): ValidationIssue[] {
+  const issues: ValidationIssue[] = []
+  const entityRef = `segment:${segment.id}`
+  const requiresCidr = subnetLikeSegmentTypes.has(segment.segmentType)
+
+  if (requiresCidr && !segment.cidr) {
+    issues.push(
+      createIssue({
+        code: "segment_cidr_required",
+        message: `Segment ${segment.id} requires a CIDR for type ${segment.segmentType}.`,
+        severity: "blocking",
+        subjectType: "segment",
+        subjectId: segment.id,
+        path: "segments[].cidr",
+        entityRefs: [entityRef],
+      }),
+    )
+  }
+
+  if (segment.cidr && !parseIpv4Cidr(segment.cidr)) {
+    issues.push(
+      createIssue({
+        code: "segment_cidr_invalid",
+        message: `Segment ${segment.id} has an invalid IPv4 CIDR: ${segment.cidr}.`,
+        severity: "blocking",
+        subjectType: "segment",
+        subjectId: segment.id,
+        path: "segments[].cidr",
+        entityRefs: [entityRef],
+      }),
+    )
+  }
+
+  if (segment.gateway && !parseIpv4(segment.gateway)) {
+    issues.push(
+      createIssue({
+        code: "segment_gateway_invalid",
+        message: `Segment ${segment.id} has an invalid IPv4 gateway: ${segment.gateway}.`,
+        severity: "blocking",
+        subjectType: "segment",
+        subjectId: segment.id,
+        path: "segments[].gateway",
+        entityRefs: [entityRef],
+      }),
+    )
+  }
+
+  if (segment.gateway && !segment.cidr) {
+    issues.push(
+      createIssue({
+        code: "segment_gateway_requires_cidr",
+        message: `Segment ${segment.id} cannot define a gateway without a CIDR.`,
+        severity: "blocking",
+        subjectType: "segment",
+        subjectId: segment.id,
+        path: "segments[].gateway",
+        entityRefs: [entityRef],
+      }),
+    )
+  }
+
+  if (segment.gateway && segment.cidr && parseIpv4(segment.gateway) && parseIpv4Cidr(segment.cidr)) {
+    if (!isIpv4InCidr(segment.gateway, segment.cidr)) {
+      issues.push(
+        createIssue({
+          code: "segment_gateway_outside_cidr",
+          message: `Segment ${segment.id} has a gateway outside its CIDR range.`,
+          severity: "blocking",
+          subjectType: "segment",
+          subjectId: segment.id,
+          path: "segments[].gateway",
+          entityRefs: [entityRef],
+        }),
+      )
+    }
+  }
+
+  return issues
+}
+
+function validateAllocation(args: {
+  allocation: IpAllocation
+  deviceIds: Set<string>
+  segmentMap: Map<string, NetworkSegment>
+}): ValidationIssue[] {
+  const { allocation, deviceIds, segmentMap } = args
+  const issues: ValidationIssue[] = []
+  const allocationEntityRef = `allocation:${allocation.id}`
+  const segment = segmentMap.get(allocation.segmentId)
+
+  if (!segment) {
+    issues.push(
+      createIssue({
+        code: "allocation_segment_missing",
+        message: `Allocation ${allocation.id} references a missing segment: ${allocation.segmentId}.`,
+        severity: "blocking",
+        subjectType: "allocation",
+        subjectId: allocation.id,
+        path: "allocations[].segmentId",
+        entityRefs: [allocationEntityRef, `segment:${allocation.segmentId}`],
+      }),
+    )
+
+    return issues
+  }
+
+  if (!parseIpv4(allocation.ipAddress)) {
+    issues.push(
+      createIssue({
+        code: "allocation_ip_invalid",
+        message: `Allocation ${allocation.id} has an invalid IPv4 address: ${allocation.ipAddress}.`,
+        severity: "blocking",
+        subjectType: "allocation",
+        subjectId: allocation.id,
+        path: "allocations[].ipAddress",
+        entityRefs: [allocationEntityRef, `segment:${segment.id}`],
+      }),
+    )
+  }
+
+  if (allocation.deviceId && !deviceIds.has(allocation.deviceId)) {
+    issues.push(
+      createIssue({
+        code: "allocation_device_missing",
+        message: `Allocation ${allocation.id} references a missing device: ${allocation.deviceId}.`,
+        severity: "blocking",
+        subjectType: "allocation",
+        subjectId: allocation.id,
+        path: "allocations[].deviceId",
+        entityRefs: [allocationEntityRef, `device:${allocation.deviceId}`],
+      }),
+    )
+  }
+
+  if (
+    parseIpv4(allocation.ipAddress)
+    && segment.cidr
+    && parseIpv4Cidr(segment.cidr)
+    && !isIpv4InCidr(allocation.ipAddress, segment.cidr)
+  ) {
+    issues.push(
+      createIssue({
+        code: "allocation_ip_outside_segment",
+        message: `Allocation ${allocation.id} has an IP outside segment ${segment.id}.`,
+        severity: "blocking",
+        subjectType: "allocation",
+        subjectId: allocation.id,
+        path: "allocations[].ipAddress",
+        entityRefs: [allocationEntityRef, `segment:${segment.id}`],
+      }),
+    )
+  }
+
+  return issues
+}
+
+function normalizeLinkPairKey(link: Link): string {
+  return [link.endpointA.portId, link.endpointB.portId]
+    .sort((left, right) => left.localeCompare(right))
+    .join(":")
+}
+
+function validatePort(args: {
+  port: Port
+  deviceIds: Set<string>
+}): ValidationIssue[] {
+  const { port, deviceIds } = args
+
+  if (deviceIds.has(port.deviceId)) {
+    return []
+  }
+
+  return [
+    createIssue({
+      code: "port_device_missing",
+      message: `Port ${port.id} references a missing device: ${port.deviceId}.`,
+      severity: "blocking",
+      subjectType: "port",
+      subjectId: port.id,
+      path: "ports[].deviceId",
+      entityRefs: [`port:${port.id}`, `device:${port.deviceId}`],
+    }),
+  ]
+}
+
+function validateLink(args: {
+  link: Link
+  portIds: Set<string>
+}): ValidationIssue[] {
+  const { link, portIds } = args
+  const issues: ValidationIssue[] = []
+
+  if (link.endpointA.portId === link.endpointB.portId) {
+    issues.push(
+      createIssue({
+        code: "link_self_reference",
+        message: `Link ${link.id} cannot connect a port to itself: ${link.endpointA.portId}.`,
+        severity: "blocking",
+        subjectType: "link",
+        subjectId: link.id,
+        path: "links[].endpointA.portId",
+        entityRefs: [`link:${link.id}`, `port:${link.endpointA.portId}`],
+      }),
+    )
+  }
+
+  if (!portIds.has(link.endpointA.portId)) {
+    issues.push(
+      createIssue({
+        code: "link_port_missing",
+        message: `Link ${link.id} references a missing port on endpointA: ${link.endpointA.portId}.`,
+        severity: "blocking",
+        subjectType: "link",
+        subjectId: link.id,
+        path: "links[].endpointA.portId",
+        entityRefs: [`link:${link.id}`, `port:${link.endpointA.portId}`],
+      }),
+    )
+  }
+
+  if (!portIds.has(link.endpointB.portId)) {
+    issues.push(
+      createIssue({
+        code: "link_port_missing",
+        message: `Link ${link.id} references a missing port on endpointB: ${link.endpointB.portId}.`,
+        severity: "blocking",
+        subjectType: "link",
+        subjectId: link.id,
+        path: "links[].endpointB.portId",
+        entityRefs: [`link:${link.id}`, `port:${link.endpointB.portId}`],
+      }),
+    )
+  }
+
+  return issues
+}
+
+function requiresPhysicalPlacement(input: CloudSolutionSliceInput): boolean {
+  return input.requirement.artifactRequests.includes("device-cabling-table")
+    || input.requirement.artifactRequests.includes("device-port-plan")
+}
+
+function getArtifactRequestFlags(input: CloudSolutionSliceInput) {
+  return {
+    requiresDeviceCablingTable: input.requirement.artifactRequests.includes("device-cabling-table"),
+    requiresDevicePortPlan: input.requirement.artifactRequests.includes("device-port-plan"),
+    requiresDevicePortConnectionTable: input.requirement.artifactRequests.includes(
+      "device-port-connection-table",
+    ),
+    requiresIpAllocationTable: input.requirement.artifactRequests.includes("ip-allocation-table"),
+  }
+}
+
+function validatePhysicalArtifactCompleteness(args: {
+  input: CloudSolutionSliceInput
+  requiresDeviceCablingTable: boolean
+  requiresDevicePortPlan: boolean
+  requiresDevicePortConnectionTable: boolean
+  requiresIpAllocationTable: boolean
+}): ValidationIssue[] {
+  const {
+    input,
+    requiresDeviceCablingTable,
+    requiresDevicePortPlan,
+    requiresDevicePortConnectionTable,
+    requiresIpAllocationTable,
+  } = args
+  const issues: ValidationIssue[] = []
+  const rackAwarePhysicalArtifactsRequested =
+    requiresDeviceCablingTable || requiresDevicePortPlan
+  const connectivityArtifactsRequested =
+    rackAwarePhysicalArtifactsRequested || requiresDevicePortConnectionTable
+  const completenessChecksRequested = connectivityArtifactsRequested || requiresIpAllocationTable
+
+  if (!completenessChecksRequested) {
+    return issues
+  }
+
+  if (rackAwarePhysicalArtifactsRequested && input.racks.length === 0) {
+    issues.push(
+      createIssue({
+        code: "physical_racks_missing",
+        message: "Requested physical planning artifacts require at least one explicit rack.",
+        severity: "blocking",
+        subjectType: "requirement",
+        subjectId: input.requirement.id,
+        path: "racks",
+        entityRefs: [`requirement:${input.requirement.id}`],
+      }),
+    )
+  }
+
+  if (connectivityArtifactsRequested && input.devices.length === 0) {
+    issues.push(
+      createIssue({
+        code: "physical_devices_missing",
+        message: "Requested physical planning artifacts require at least one explicit device.",
+        severity: "blocking",
+        subjectType: "requirement",
+        subjectId: input.requirement.id,
+        path: "devices",
+        entityRefs: [`requirement:${input.requirement.id}`],
+      }),
+    )
+  }
+
+  if (connectivityArtifactsRequested && input.ports.length === 0) {
+    issues.push(
+      createIssue({
+        code: "physical_ports_missing",
+        message: "Requested physical planning artifacts require at least one explicit port.",
+        severity: "blocking",
+        subjectType: "requirement",
+        subjectId: input.requirement.id,
+        path: "ports",
+        entityRefs: [`requirement:${input.requirement.id}`],
+      }),
+    )
+  }
+
+  if (requiresDeviceCablingTable && input.links.length === 0) {
+    issues.push(
+      createIssue({
+        code: "device_cabling_links_missing",
+        message: "Requested device-cabling-table requires at least one explicit link.",
+        severity: "blocking",
+        subjectType: "requirement",
+        subjectId: input.requirement.id,
+        path: "links",
+        entityRefs: [`requirement:${input.requirement.id}`],
+      }),
+    )
+  }
+
+  if (requiresDevicePortConnectionTable && input.links.length === 0) {
+    issues.push(
+      createIssue({
+        code: "port_connection_links_missing",
+        message: "Requested device-port-connection-table requires at least one explicit link.",
+        severity: "blocking",
+        subjectType: "requirement",
+        subjectId: input.requirement.id,
+        path: "links",
+        entityRefs: [`requirement:${input.requirement.id}`],
+      }),
+    )
+  }
+
+  if (requiresIpAllocationTable && input.allocations.length === 0) {
+    issues.push(
+      createIssue({
+        code: "ip_allocations_missing",
+        message: "Requested ip-allocation-table requires at least one explicit allocation.",
+        severity: "blocking",
+        subjectType: "requirement",
+        subjectId: input.requirement.id,
+        path: "allocations",
+        entityRefs: [`requirement:${input.requirement.id}`],
+      }),
+    )
+  }
+
+  return issues
+}
+
+function validatePhysicalFactConfidence(args: {
+  input: CloudSolutionSliceInput
+  requiresDeviceCablingTable: boolean
+  requiresDevicePortPlan: boolean
+  requiresDevicePortConnectionTable: boolean
+}): ValidationIssue[] {
+  const {
+    input,
+    requiresDeviceCablingTable,
+    requiresDevicePortPlan,
+    requiresDevicePortConnectionTable,
+  } = args
+  const physicalArtifactsRequested =
+    requiresDeviceCablingTable || requiresDevicePortPlan || requiresDevicePortConnectionTable
+
+  if (!physicalArtifactsRequested) {
+    return []
+  }
+
+  const issues: ValidationIssue[] = []
+  const entities = [
+    ...input.racks.map((rack) => ({
+      subjectType: "rack" as const,
+      subjectId: rack.id,
+      path: "racks[].statusConfidence",
+      statusConfidence: rack.statusConfidence,
+    })),
+    ...input.devices.map((device) => ({
+      subjectType: "device" as const,
+      subjectId: device.id,
+      path: "devices[].statusConfidence",
+      statusConfidence: device.statusConfidence,
+    })),
+    ...input.ports.map((port) => ({
+      subjectType: "port" as const,
+      subjectId: port.id,
+      path: "ports[].statusConfidence",
+      statusConfidence: port.statusConfidence,
+    })),
+    ...(requiresDeviceCablingTable || input.links.length > 0
+      ? input.links.map((link) => ({
+          subjectType: "link" as const,
+          subjectId: link.id,
+          path: "links[].statusConfidence",
+          statusConfidence: link.statusConfidence,
+        }))
+      : []),
+  ]
+
+  for (const entity of entities) {
+    if (entity.statusConfidence === "confirmed") {
+      continue
+    }
+
+    issues.push(
+      createIssue({
+        code: "physical_fact_not_confirmed",
+        message: `${entity.subjectType} ${entity.subjectId} has statusConfidence ${entity.statusConfidence} and cannot drive requested physical artifacts.`,
+        severity: "blocking",
+        subjectType: entity.subjectType,
+        subjectId: entity.subjectId,
+        path: entity.path,
+        entityRefs: [`${entity.subjectType}:${entity.subjectId}`],
+      }),
+    )
+  }
+
+  return issues
+}
+
+function validateNetworkFactConfidence(args: {
+  input: CloudSolutionSliceInput
+  requiresIpAllocationTable: boolean
+}): ValidationIssue[] {
+  const { input, requiresIpAllocationTable } = args
+
+  if (!requiresIpAllocationTable) {
+    return []
+  }
+
+  const issues: ValidationIssue[] = []
+  const entities = [
+    ...input.segments.map((segment) => ({
+      subjectType: "segment" as const,
+      subjectId: segment.id,
+      path: "segments[].statusConfidence",
+      statusConfidence: segment.statusConfidence,
+    })),
+    ...input.allocations.map((allocation) => ({
+      subjectType: "allocation" as const,
+      subjectId: allocation.id,
+      path: "allocations[].statusConfidence",
+      statusConfidence: allocation.statusConfidence,
+    })),
+  ]
+
+  for (const entity of entities) {
+    if (entity.statusConfidence === "confirmed") {
+      continue
+    }
+
+    issues.push(
+      createIssue({
+        code: "network_fact_not_confirmed",
+        message: `${entity.subjectType} ${entity.subjectId} has statusConfidence ${entity.statusConfidence} and cannot drive requested IP artifacts.`,
+        severity: "blocking",
+        subjectType: entity.subjectType,
+        subjectId: entity.subjectId,
+        path: entity.path,
+        entityRefs: [`${entity.subjectType}:${entity.subjectId}`],
+      }),
+    )
+  }
+
+  return issues
+}
+
+function validateDeviceRedundancyIntent(args: {
+  devices: Device[]
+  ports: Port[]
+  links: Link[]
+}): ValidationIssue[] {
+  const { devices, ports, links } = args
+  const portMap = new Map(ports.map((port) => [port.id, port]))
+  const linkCountsByDevice = new Map<string, Set<string>>()
+
+  for (const link of links) {
+    const endpointPorts = [link.endpointA.portId, link.endpointB.portId]
+
+    for (const portId of endpointPorts) {
+      const port = portMap.get(portId)
+      if (!port) {
+        continue
+      }
+
+      const linkIds = linkCountsByDevice.get(port.deviceId) ?? new Set<string>()
+      linkIds.add(link.id)
+      linkCountsByDevice.set(port.deviceId, linkIds)
+    }
+  }
+
+  const issues: ValidationIssue[] = []
+
+  for (const device of devices) {
+    if (!device.redundancyIntent || device.redundancyIntent === "single-homed") {
+      continue
+    }
+
+    const linkCount = linkCountsByDevice.get(device.id)?.size ?? 0
+    if (linkCount >= 2) {
+      continue
+    }
+
+    const severity = device.redundancyIntent === "dual-homed-required"
+      ? "blocking"
+      : "warning"
+
+    issues.push(
+      createIssue({
+        code: "device_redundancy_links_insufficient",
+        message: `Device ${device.id} has redundancyIntent ${device.redundancyIntent} but only ${linkCount} link(s).`,
+        severity,
+        subjectType: "device",
+        subjectId: device.id,
+        path: "devices[].redundancyIntent",
+        entityRefs: [`device:${device.id}`],
+        blocking: severity === "blocking",
+      }),
+    )
+  }
+
+  return issues
+}
+
+function validateDeviceRackPlacement(args: {
+  device: Device
+  rackMap: Map<string, Rack>
+  physicalPlacementRequired: boolean
+}): ValidationIssue[] {
+  const { device, rackMap, physicalPlacementRequired } = args
+  const issues: ValidationIssue[] = []
+  const deviceEntityRef = `device:${device.id}`
+
+  if (physicalPlacementRequired && !device.rackId) {
+    issues.push(
+      createIssue({
+        code: "device_rack_required",
+        message: `Device ${device.id} requires a rack reference for physical planning artifacts.`,
+        severity: "blocking",
+        subjectType: "device",
+        subjectId: device.id,
+        path: "devices[].rackId",
+        entityRefs: [deviceEntityRef],
+      }),
+    )
+  }
+
+  if (device.rackId && !rackMap.has(device.rackId)) {
+    issues.push(
+      createIssue({
+        code: "device_rack_missing",
+        message: `Device ${device.id} references a missing rack: ${device.rackId}.`,
+        severity: "blocking",
+        subjectType: "device",
+        subjectId: device.id,
+        path: "devices[].rackId",
+        entityRefs: [deviceEntityRef, `rack:${device.rackId}`],
+      }),
+    )
+  }
+
+  if (physicalPlacementRequired && typeof device.rackPosition !== "number") {
+    issues.push(
+      createIssue({
+        code: "device_rack_position_required",
+        message: `Device ${device.id} requires an explicit rack position for physical planning artifacts.`,
+        severity: "blocking",
+        subjectType: "device",
+        subjectId: device.id,
+        path: "devices[].rackPosition",
+        entityRefs: [deviceEntityRef],
+      }),
+    )
+  }
+
+  if (physicalPlacementRequired && typeof device.rackUnitHeight !== "number") {
+    issues.push(
+      createIssue({
+        code: "device_rack_unit_height_required",
+        message: `Device ${device.id} requires an explicit rack unit height for physical planning artifacts.`,
+        severity: "blocking",
+        subjectType: "device",
+        subjectId: device.id,
+        path: "devices[].rackUnitHeight",
+        entityRefs: [deviceEntityRef],
+      }),
+    )
+  }
+
+  if (
+    device.rackId
+    && typeof device.rackPosition === "number"
+    && typeof device.rackUnitHeight === "number"
+  ) {
+    const rack = rackMap.get(device.rackId)
+    const rackEndPosition = device.rackPosition + device.rackUnitHeight - 1
+
+    if (rack?.uHeight && rackEndPosition > rack.uHeight) {
+      issues.push(
+        createIssue({
+          code: "rack_position_exceeds_height",
+          message: `Device ${device.id} exceeds rack ${rack.id} height at units ${device.rackPosition}-${rackEndPosition}.`,
+          severity: "blocking",
+          subjectType: "rack",
+          subjectId: rack.id,
+          path: "devices[].rackPosition",
+          entityRefs: [deviceEntityRef, `rack:${rack.id}`],
+          idSuffix: `${device.id}:${device.rackPosition}-${rackEndPosition}`,
+        }),
+      )
+    }
+  }
+
+  return issues
+}
+
+function validateRackPlacementOverlaps(args: {
+  devices: Device[]
+  rackMap: Map<string, Rack>
+}): ValidationIssue[] {
+  const { devices, rackMap } = args
+  const placementsByRack = new Map<string, Array<{
+    deviceId: string
+    start: number
+    end: number
+  }>>()
+
+  for (const device of devices) {
+    if (
+      !device.rackId
+      || typeof device.rackPosition !== "number"
+      || typeof device.rackUnitHeight !== "number"
+      || !rackMap.has(device.rackId)
+    ) {
+      continue
+    }
+
+    const placements = placementsByRack.get(device.rackId) ?? []
+    placements.push({
+      deviceId: device.id,
+      start: device.rackPosition,
+      end: device.rackPosition + device.rackUnitHeight - 1,
+    })
+    placementsByRack.set(device.rackId, placements)
+  }
+
+  const issues: ValidationIssue[] = []
+
+  for (const [rackId, placements] of placementsByRack.entries()) {
+    const sortedPlacements = placements
+      .slice()
+      .sort((left, right) => left.start - right.start || left.deviceId.localeCompare(right.deviceId))
+
+    for (let index = 0; index < sortedPlacements.length; index += 1) {
+      const currentPlacement = sortedPlacements[index]
+      if (!currentPlacement) {
+        continue
+      }
+
+      for (let nextIndex = index + 1; nextIndex < sortedPlacements.length; nextIndex += 1) {
+        const nextPlacement = sortedPlacements[nextIndex]
+        if (!nextPlacement) {
+          continue
+        }
+
+        if (nextPlacement.start > currentPlacement.end) {
+          break
+        }
+
+        const overlapStart = Math.max(currentPlacement.start, nextPlacement.start)
+        const overlapEnd = Math.min(currentPlacement.end, nextPlacement.end)
+        issues.push(
+          createIssue({
+            code: "rack_position_overlap",
+            message: `Devices ${currentPlacement.deviceId} and ${nextPlacement.deviceId} overlap in rack ${rackId} at units ${overlapStart}-${overlapEnd}.`,
+            severity: "blocking",
+            subjectType: "rack",
+            subjectId: rackId,
+            path: "devices[].rackPosition",
+            entityRefs: [
+              `rack:${rackId}`,
+              `device:${currentPlacement.deviceId}`,
+              `device:${nextPlacement.deviceId}`,
+            ],
+            idSuffix: `${currentPlacement.deviceId}:${nextPlacement.deviceId}:${overlapStart}-${overlapEnd}`,
+          }),
+        )
+      }
+    }
+  }
+
+  return issues
+}
+
+export function hasBlockingIssues(issues: ValidationIssue[]): boolean {
+  return issues.some((issue) => issue.blocking)
+}
+
+export function validateCloudSolutionModel(
+  input: CloudSolutionSliceInput,
+): ValidationIssue[] {
+  const issues: ValidationIssue[] = []
+  const {
+    requiresDeviceCablingTable,
+    requiresDevicePortPlan,
+    requiresDevicePortConnectionTable,
+    requiresIpAllocationTable,
+  } = getArtifactRequestFlags(input)
+  const deviceIds = new Set(input.devices.map((device) => device.id))
+  const rackMap = new Map(input.racks.map((rack) => [rack.id, rack]))
+  const portIds = new Set(input.ports.map((port) => port.id))
+  const segmentMap = new Map(input.segments.map((segment) => [segment.id, segment]))
+  const physicalPlacementRequired = requiresPhysicalPlacement(input)
+  const requiresNetworkSegments =
+    input.allocations.length > 0
+    || input.requirement.artifactRequests.includes("ip-allocation-table")
+
+  if (requiresNetworkSegments && input.segments.length === 0) {
+    issues.push(
+      createIssue({
+        code: "network_segments_missing",
+        message: "At least one network segment is required for the validation slice.",
+        severity: "blocking",
+        subjectType: "requirement",
+        subjectId: input.requirement.id,
+        path: "segments",
+        entityRefs: [`requirement:${input.requirement.id}`],
+      }),
+    )
+  }
+
+  for (const duplicateDeviceId of countDuplicates(input.devices.map((device) => device.id))) {
+    issues.push(
+      createIssue({
+        code: "duplicate_device_id",
+        message: `Device ID is duplicated: ${duplicateDeviceId}.`,
+        severity: "blocking",
+        subjectType: "device",
+        subjectId: duplicateDeviceId,
+        path: "devices[].id",
+        entityRefs: [`device:${duplicateDeviceId}`],
+      }),
+    )
+  }
+
+  for (const duplicateRackId of countDuplicates(input.racks.map((rack) => rack.id))) {
+    issues.push(
+      createIssue({
+        code: "duplicate_rack_id",
+        message: `Rack ID is duplicated: ${duplicateRackId}.`,
+        severity: "blocking",
+        subjectType: "rack",
+        subjectId: duplicateRackId,
+        path: "racks[].id",
+        entityRefs: [`rack:${duplicateRackId}`],
+      }),
+    )
+  }
+
+  for (const duplicateSegmentId of countDuplicates(input.segments.map((segment) => segment.id))) {
+    issues.push(
+      createIssue({
+        code: "duplicate_segment_id",
+        message: `Segment ID is duplicated: ${duplicateSegmentId}.`,
+        severity: "blocking",
+        subjectType: "segment",
+        subjectId: duplicateSegmentId,
+        path: "segments[].id",
+        entityRefs: [`segment:${duplicateSegmentId}`],
+      }),
+    )
+  }
+
+  for (const duplicateAllocationId of countDuplicates(
+    input.allocations.map((allocation) => allocation.id),
+  )) {
+    issues.push(
+      createIssue({
+        code: "duplicate_allocation_id",
+        message: `Allocation ID is duplicated: ${duplicateAllocationId}.`,
+        severity: "blocking",
+        subjectType: "allocation",
+        subjectId: duplicateAllocationId,
+        path: "allocations[].id",
+        entityRefs: [`allocation:${duplicateAllocationId}`],
+      }),
+    )
+  }
+
+  for (const duplicatePortId of countDuplicates(input.ports.map((port) => port.id))) {
+    issues.push(
+      createIssue({
+        code: "duplicate_port_id",
+        message: `Port ID is duplicated: ${duplicatePortId}.`,
+        severity: "blocking",
+        subjectType: "port",
+        subjectId: duplicatePortId,
+        path: "ports[].id",
+        entityRefs: [`port:${duplicatePortId}`],
+      }),
+    )
+  }
+
+  for (const duplicateLinkId of countDuplicates(input.links.map((link) => link.id))) {
+    issues.push(
+      createIssue({
+        code: "duplicate_link_id",
+        message: `Link ID is duplicated: ${duplicateLinkId}.`,
+        severity: "blocking",
+        subjectType: "link",
+        subjectId: duplicateLinkId,
+        path: "links[].id",
+        entityRefs: [`link:${duplicateLinkId}`],
+      }),
+    )
+  }
+
+  if (input.requirement.scopeType === "data-center" && input.devices.length === 0) {
+    issues.push(
+      createIssue({
+        code: "device_inventory_missing",
+        message: "Data-center scope should include at least one device in the current slice.",
+        severity: "warning",
+        subjectType: "requirement",
+        subjectId: input.requirement.id,
+        path: "devices",
+        entityRefs: [`requirement:${input.requirement.id}`],
+        blocking: false,
+      }),
+    )
+  }
+
+  issues.push(
+    ...validatePhysicalArtifactCompleteness({
+      input,
+      requiresDeviceCablingTable,
+      requiresDevicePortPlan,
+      requiresDevicePortConnectionTable,
+      requiresIpAllocationTable,
+    }),
+  )
+
+  issues.push(
+    ...validatePhysicalFactConfidence({
+      input,
+      requiresDeviceCablingTable,
+      requiresDevicePortPlan,
+      requiresDevicePortConnectionTable,
+    }),
+  )
+
+  issues.push(
+    ...validateNetworkFactConfidence({
+      input,
+      requiresIpAllocationTable,
+    }),
+  )
+
+  for (const device of input.devices) {
+    issues.push(
+      ...validateDeviceRackPlacement({
+        device,
+        rackMap,
+        physicalPlacementRequired,
+      }),
+    )
+  }
+
+  issues.push(
+    ...validateRackPlacementOverlaps({
+      devices: input.devices,
+      rackMap,
+    }),
+  )
+
+  for (const segment of input.segments) {
+    issues.push(...validateSegment(segment))
+  }
+
+  for (const port of input.ports) {
+    issues.push(
+      ...validatePort({
+        port,
+        deviceIds,
+      }),
+    )
+  }
+
+  const linkConnectionGroups = new Map<string, string[]>()
+
+  for (const link of input.links) {
+    issues.push(
+      ...validateLink({
+        link,
+        portIds,
+      }),
+    )
+
+    const pairKey = normalizeLinkPairKey(link)
+    const groupedLinkIds = linkConnectionGroups.get(pairKey) ?? []
+    groupedLinkIds.push(link.id)
+    linkConnectionGroups.set(pairKey, groupedLinkIds)
+  }
+
+  for (const [pairKey, linkIds] of linkConnectionGroups.entries()) {
+    if (linkIds.length < 2) {
+      continue
+    }
+
+    const [endpointA, endpointB] = pairKey.split(":")
+    issues.push(
+      createIssue({
+        code: "duplicate_link_connection",
+        message: `Port connection ${endpointA} <-> ${endpointB} is duplicated.`,
+        severity: "blocking",
+        subjectType: "link",
+        subjectId: linkIds.slice().sort((left, right) => left.localeCompare(right))[0] ?? pairKey,
+        path: "links",
+        entityRefs: [
+          `port:${endpointA}`,
+          `port:${endpointB}`,
+          ...linkIds
+            .slice()
+            .sort((left, right) => left.localeCompare(right))
+            .map((linkId) => `link:${linkId}`),
+        ],
+      }),
+    )
+  }
+
+  issues.push(
+    ...validateDeviceRedundancyIntent({
+      devices: input.devices,
+      ports: input.ports,
+      links: input.links,
+    }),
+  )
+
+  const allocationAddressGroups = new Map<string, string[]>()
+
+  for (const allocation of input.allocations) {
+    issues.push(
+      ...validateAllocation({
+        allocation,
+        deviceIds,
+        segmentMap,
+      }),
+    )
+
+    const duplicateAddressKey = `${allocation.segmentId}:${allocation.ipAddress}`
+    const groupedAllocationIds = allocationAddressGroups.get(duplicateAddressKey) ?? []
+    groupedAllocationIds.push(allocation.id)
+    allocationAddressGroups.set(duplicateAddressKey, groupedAllocationIds)
+  }
+
+  for (const [groupKey, allocationIds] of allocationAddressGroups.entries()) {
+    if (allocationIds.length < 2) {
+      continue
+    }
+
+    const [segmentId, ipAddress] = groupKey.split(":")
+    issues.push(
+      createIssue({
+        code: "duplicate_allocation_ip",
+        message: `IP address ${ipAddress} is duplicated within segment ${segmentId}.`,
+        severity: "blocking",
+        subjectType: "segment",
+        subjectId: segmentId,
+        path: "allocations[].ipAddress",
+        entityRefs: [
+          `segment:${segmentId}`,
+          ...allocationIds
+            .sort((left, right) => left.localeCompare(right))
+            .map((allocationId) => `allocation:${allocationId}`),
+        ],
+      }),
+    )
+  }
+
+  return issues.sort((left, right) => {
+    const severityDelta = severityRank[left.severity] - severityRank[right.severity]
+    if (severityDelta !== 0) {
+      return severityDelta
+    }
+
+    const codeDelta = left.code.localeCompare(right.code)
+    if (codeDelta !== 0) {
+      return codeDelta
+    }
+
+    const subjectTypeDelta = left.subjectType.localeCompare(right.subjectType)
+    if (subjectTypeDelta !== 0) {
+      return subjectTypeDelta
+    }
+
+    const subjectIdDelta = left.subjectId.localeCompare(right.subjectId)
+    if (subjectIdDelta !== 0) {
+      return subjectIdDelta
+    }
+
+    const pathDelta = (left.path ?? "").localeCompare(right.path ?? "")
+    if (pathDelta !== 0) {
+      return pathDelta
+    }
+
+    return left.entityRefs.join(",").localeCompare(right.entityRefs.join(","))
+  })
+}
