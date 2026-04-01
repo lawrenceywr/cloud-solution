@@ -25,6 +25,9 @@ Completed in this stage:
 8. add a first normalization layer for structured physical/network inputs
 9. enforce confirmed-only artifact generation across physical and IP outputs
 10. add a deterministic `summarize_design_gaps` review tool and assumption report renderer
+11. add a deterministic `export_artifact_bundle` workflow that packages requested artifacts, review output, and a bundle index
+12. lock `SCN-01` to `SCN-03` export-bundle outputs into checked-in scenario regression baselines
+13. deepen `SCN-02` redundancy validation and `SCN-03` multi-rack validation before any agent work starts
 
 Framework status right now:
 
@@ -34,10 +37,8 @@ Framework status right now:
 
 Active next focus:
 
-1. artifact bundle/export workflow on top of the new review summary output
-2. richer scenario fixtures and snapshot maintenance
-3. agent/background workflow orchestration only after the export/review foundation is in place
-4. post-MVP extensions such as multimodal drafting and external integrations
+1. agent/background workflow orchestration only after the export/review foundation is in place
+2. post-MVP extensions such as multimodal drafting and external integrations
 
 ## Progress Table
 
@@ -54,6 +55,9 @@ Active next focus:
 | BL-009 | completed | Structured inputs normalize into canonical racks/devices/ports/links/segments/allocations. |
 | BL-010 | completed | Confirmation gating now blocks weak physical and IP facts from driving final artifacts. |
 | BL-011 | completed | `summarize_design_gaps` now returns deterministic assumptions, gaps, and unresolved review output. |
+| BL-012 | completed | `export_artifact_bundle` now packages requested artifacts, review output, and a bundle index in one deterministic export response. |
+| BL-013 | completed | `SCN-01` to `SCN-03` export bundles are now locked with checked-in regression baselines. |
+| BL-014 | completed | SCN-02 dual-homing and SCN-03 multi-rack validation depth now cover the next deterministic edge cases. |
 
 ## Ordered Backlog
 
@@ -164,10 +168,39 @@ Active next focus:
   - report content comes from normalized/validated model data and issue output only
   - markdown report is deterministic and review-friendly
 
+### BL-012 - Add artifact bundle/export workflow [completed]
+
+- **Goal**: package existing validated artifacts and review output into one deterministic export response
+- **Depends on**: `BL-005`, `BL-007`, `BL-008`, `BL-010`, `BL-011`
+- **Source docs**: `docs/architecture.md`, `docs/roadmap.md`
+- **Acceptance**:
+  - `export_artifact_bundle` is registered and invokable end to end
+  - bundle includes a bundle index, review artifact, and all requested markdown artifacts
+  - bundle output stays deterministic and does not invent missing rows or files
+  - omitted artifact requests fall back to the configured default artifact set
+
+### BL-013 - Lock canonical export-bundle baselines [completed]
+
+- **Goal**: turn `SCN-01` to `SCN-03` bundle outputs into checked-in regression references before moving into orchestration
+- **Depends on**: `BL-008`, `BL-012`
+- **Source docs**: `docs/scenarios.md`, `docs/roadmap.md`
+- **Acceptance**:
+  - each canonical scenario has a checked-in expected export-bundle baseline
+  - scenario bundle tests compare normalized bundle payloads to expected files
+  - regression baselines cover bundle index, review report, and requested markdown artifacts
+
+### BL-014 - Deepen SCN-02 and SCN-03 deterministic validation [completed]
+
+- **Goal**: harden redundancy and multi-rack semantics before starting agent/background workflow work
+- **Depends on**: `BL-007`, `BL-008`, `BL-012`, `BL-013`
+- **Source docs**: `docs/scenarios.md`, `docs/domain-model.md`
+- **Acceptance**:
+  - dual-homed devices require distinct peer coverage instead of raw link counts only
+  - redundant links must carry consistent redundancy-group metadata
+  - rack-aware port-connection planning rejects missing rack assignments
+  - inter-rack and multi-rack connection semantics are checked deterministically
+
 ## Not Scheduled Yet
 
-- SCN-02 redundancy intent and dual-homing rule depth
-- SCN-03 multi-rack pod validation depth
 - multimodal candidate fact extraction
-- export bundles and review workflows
 - external system integrations

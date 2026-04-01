@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test"
 import { loadPluginConfig } from "./plugin-config"
 import { createManagers } from "./create-managers"
 import { createTools } from "./create-tools"
+import { createTestToolContext } from "./test-helpers/tool-context"
 
 describe("validate_solution_model tool", () => {
   test("registers validate_solution_model and returns validation-only output", async () => {
@@ -45,7 +46,7 @@ describe("validate_solution_model tool", () => {
           },
         ],
       },
-      { sessionID: "validation-tool-session" },
+      createTestToolContext({ sessionID: "validation-tool-session" }),
     )
     const parsed = JSON.parse(response)
 

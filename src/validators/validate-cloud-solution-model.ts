@@ -365,6 +365,14 @@ function requiresPhysicalPlacement(input: CloudSolutionSliceInput): boolean {
     || input.requirement.artifactRequests.includes("device-port-plan")
 }
 
+function requiresRackAssignment(input: CloudSolutionSliceInput): boolean {
+  return requiresPhysicalPlacement(input)
+    || (
+      input.requirement.artifactRequests.includes("device-port-connection-table")
+      && input.racks.length > 1
+    )
+}
+
 function getArtifactRequestFlags(input: CloudSolutionSliceInput) {
   return {
     requiresDeviceCablingTable: input.requirement.artifactRequests.includes("device-cabling-table"),
@@ -613,19 +621,52 @@ function validateDeviceRedundancyIntent(args: {
   const { devices, ports, links } = args
   const portMap = new Map(ports.map((port) => [port.id, port]))
   const linkCountsByDevice = new Map<string, Set<string>>()
+  const localPortIdsByDevice = new Map<string, Set<string>>()
+  const peerDeviceIdsByDevice = new Map<string, Set<string>>()
+  const redundancyGroupsByDevice = new Map<string, Set<string>>()
+  const missingRedundancyGroupByDevice = new Set<string>()
 
   for (const link of links) {
-    const endpointPorts = [link.endpointA.portId, link.endpointB.portId]
+    const endpointAPort = portMap.get(link.endpointA.portId)
+    const endpointBPort = portMap.get(link.endpointB.portId)
 
-    for (const portId of endpointPorts) {
-      const port = portMap.get(portId)
-      if (!port) {
-        continue
-      }
+    if (!endpointAPort || !endpointBPort) {
+      continue
+    }
 
-      const linkIds = linkCountsByDevice.get(port.deviceId) ?? new Set<string>()
+    const directionalEndpoints = [
+      {
+        deviceId: endpointAPort.deviceId,
+        localPortId: endpointAPort.id,
+        peerDeviceId: endpointBPort.deviceId,
+      },
+      {
+        deviceId: endpointBPort.deviceId,
+        localPortId: endpointBPort.id,
+        peerDeviceId: endpointAPort.deviceId,
+      },
+    ]
+
+    for (const directionalEndpoint of directionalEndpoints) {
+      const linkIds = linkCountsByDevice.get(directionalEndpoint.deviceId) ?? new Set<string>()
       linkIds.add(link.id)
-      linkCountsByDevice.set(port.deviceId, linkIds)
+      linkCountsByDevice.set(directionalEndpoint.deviceId, linkIds)
+
+      const localPortIds = localPortIdsByDevice.get(directionalEndpoint.deviceId) ?? new Set<string>()
+      localPortIds.add(directionalEndpoint.localPortId)
+      localPortIdsByDevice.set(directionalEndpoint.deviceId, localPortIds)
+
+      const peerDeviceIds = peerDeviceIdsByDevice.get(directionalEndpoint.deviceId) ?? new Set<string>()
+      peerDeviceIds.add(directionalEndpoint.peerDeviceId)
+      peerDeviceIdsByDevice.set(directionalEndpoint.deviceId, peerDeviceIds)
+
+      if (!link.redundancyGroup) {
+        missingRedundancyGroupByDevice.add(directionalEndpoint.deviceId)
+      } else {
+        const redundancyGroups = redundancyGroupsByDevice.get(directionalEndpoint.deviceId) ?? new Set<string>()
+        redundancyGroups.add(link.redundancyGroup)
+        redundancyGroupsByDevice.set(directionalEndpoint.deviceId, redundancyGroups)
+      }
     }
   }
 
@@ -637,26 +678,74 @@ function validateDeviceRedundancyIntent(args: {
     }
 
     const linkCount = linkCountsByDevice.get(device.id)?.size ?? 0
-    if (linkCount >= 2) {
-      continue
-    }
+    const localPortCount = localPortIdsByDevice.get(device.id)?.size ?? 0
+    const peerDeviceCount = peerDeviceIdsByDevice.get(device.id)?.size ?? 0
 
     const severity = device.redundancyIntent === "dual-homed-required"
       ? "blocking"
       : "warning"
 
-    issues.push(
-      createIssue({
-        code: "device_redundancy_links_insufficient",
-        message: `Device ${device.id} has redundancyIntent ${device.redundancyIntent} but only ${linkCount} link(s).`,
-        severity,
-        subjectType: "device",
-        subjectId: device.id,
-        path: "devices[].redundancyIntent",
-        entityRefs: [`device:${device.id}`],
-        blocking: severity === "blocking",
-      }),
-    )
+    if (linkCount < 2 || localPortCount < 2) {
+      issues.push(
+        createIssue({
+          code: "device_redundancy_links_insufficient",
+          message: `Device ${device.id} has redundancyIntent ${device.redundancyIntent} but only ${linkCount} link(s) across ${localPortCount} local port(s).`,
+          severity,
+          subjectType: "device",
+          subjectId: device.id,
+          path: "devices[].redundancyIntent",
+          entityRefs: [`device:${device.id}`],
+          blocking: severity === "blocking",
+        }),
+      )
+      continue
+    }
+
+    if (peerDeviceCount < 2) {
+      issues.push(
+        createIssue({
+          code: "device_redundancy_peers_insufficient",
+          message: `Device ${device.id} has redundancyIntent ${device.redundancyIntent} but only ${peerDeviceCount} distinct peer device(s).`,
+          severity,
+          subjectType: "device",
+          subjectId: device.id,
+          path: "devices[].redundancyIntent",
+          entityRefs: [`device:${device.id}`],
+          blocking: severity === "blocking",
+        }),
+      )
+    }
+
+    if (missingRedundancyGroupByDevice.has(device.id)) {
+      issues.push(
+        createIssue({
+          code: "redundancy_group_missing",
+          message: `Device ${device.id} has redundancyIntent ${device.redundancyIntent} but one or more redundant links are missing redundancyGroup.`,
+          severity,
+          subjectType: "device",
+          subjectId: device.id,
+          path: "links[].redundancyGroup",
+          entityRefs: [`device:${device.id}`],
+          blocking: severity === "blocking",
+        }),
+      )
+    }
+
+    const redundancyGroupCount = redundancyGroupsByDevice.get(device.id)?.size ?? 0
+    if (redundancyGroupCount > 1) {
+      issues.push(
+        createIssue({
+          code: "redundancy_group_inconsistent",
+          message: `Device ${device.id} has redundancyIntent ${device.redundancyIntent} but its redundant links span ${redundancyGroupCount} redundancy groups.`,
+          severity,
+          subjectType: "device",
+          subjectId: device.id,
+          path: "links[].redundancyGroup",
+          entityRefs: [`device:${device.id}`],
+          blocking: severity === "blocking",
+        }),
+      )
+    }
   }
 
   return issues
@@ -665,13 +754,14 @@ function validateDeviceRedundancyIntent(args: {
 function validateDeviceRackPlacement(args: {
   device: Device
   rackMap: Map<string, Rack>
+  rackAssignmentRequired: boolean
   physicalPlacementRequired: boolean
 }): ValidationIssue[] {
-  const { device, rackMap, physicalPlacementRequired } = args
+  const { device, rackMap, rackAssignmentRequired, physicalPlacementRequired } = args
   const issues: ValidationIssue[] = []
   const deviceEntityRef = `device:${device.id}`
 
-  if (physicalPlacementRequired && !device.rackId) {
+  if (rackAssignmentRequired && !device.rackId) {
     issues.push(
       createIssue({
         code: "device_rack_required",
@@ -749,6 +839,78 @@ function validateDeviceRackPlacement(args: {
         }),
       )
     }
+  }
+
+  return issues
+}
+
+function validateMultiRackSemantics(args: {
+  input: CloudSolutionSliceInput
+  ports: Port[]
+}): ValidationIssue[] {
+  const { input, ports } = args
+
+  if (!input.requirement.artifactRequests.includes("device-port-connection-table")) {
+    return []
+  }
+
+  const portMap = new Map(ports.map((port) => [port.id, port]))
+  const deviceMap = new Map(input.devices.map((device) => [device.id, device]))
+  const issues: ValidationIssue[] = []
+  let crossRackLinkCount = 0
+
+  for (const link of input.links) {
+    const endpointAPort = portMap.get(link.endpointA.portId)
+    const endpointBPort = portMap.get(link.endpointB.portId)
+
+    if (!endpointAPort || !endpointBPort) {
+      continue
+    }
+
+    const endpointADevice = deviceMap.get(endpointAPort.deviceId)
+    const endpointBDevice = deviceMap.get(endpointBPort.deviceId)
+
+    if (!endpointADevice || !endpointBDevice || !endpointADevice.rackId || !endpointBDevice.rackId) {
+      continue
+    }
+
+    const endpointsAreCrossRack = endpointADevice.rackId !== endpointBDevice.rackId
+    if (endpointsAreCrossRack) {
+      crossRackLinkCount += 1
+    }
+
+    if (link.purpose?.includes("inter-rack") && !endpointsAreCrossRack) {
+      issues.push(
+        createIssue({
+          code: "inter_rack_link_same_rack",
+          message: `Link ${link.id} is marked inter-rack but both endpoints resolve to rack ${endpointADevice.rackId}.`,
+          severity: "blocking",
+          subjectType: "link",
+          subjectId: link.id,
+          path: "links[].purpose",
+          entityRefs: [
+            `link:${link.id}`,
+            `device:${endpointADevice.id}`,
+            `device:${endpointBDevice.id}`,
+            `rack:${endpointADevice.rackId}`,
+          ],
+        }),
+      )
+    }
+  }
+
+  if (input.racks.length > 1 && crossRackLinkCount === 0) {
+    issues.push(
+      createIssue({
+        code: "multi_rack_links_missing",
+        message: "Multi-rack connection planning requires at least one cross-rack link.",
+        severity: "blocking",
+        subjectType: "requirement",
+        subjectId: input.requirement.id,
+        path: "links",
+        entityRefs: [`requirement:${input.requirement.id}`],
+      }),
+    )
   }
 
   return issues
@@ -851,6 +1013,7 @@ export function validateCloudSolutionModel(
   const portIds = new Set(input.ports.map((port) => port.id))
   const segmentMap = new Map(input.segments.map((segment) => [segment.id, segment]))
   const physicalPlacementRequired = requiresPhysicalPlacement(input)
+  const rackAssignmentRequired = requiresRackAssignment(input)
   const requiresNetworkSegments =
     input.allocations.length > 0
     || input.requirement.artifactRequests.includes("ip-allocation-table")
@@ -1001,6 +1164,7 @@ export function validateCloudSolutionModel(
       ...validateDeviceRackPlacement({
         device,
         rackMap,
+        rackAssignmentRequired,
         physicalPlacementRequired,
       }),
     )
@@ -1073,6 +1237,13 @@ export function validateCloudSolutionModel(
       devices: input.devices,
       ports: input.ports,
       links: input.links,
+    }),
+  )
+
+  issues.push(
+    ...validateMultiRackSemantics({
+      input,
+      ports: input.ports,
     }),
   )
 

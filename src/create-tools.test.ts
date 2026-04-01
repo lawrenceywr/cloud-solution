@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test"
 
+import { createScn01SingleRackConnectivityFixture } from "./scenarios/fixtures"
 import { loadPluginConfig } from "./plugin-config"
 import { createManagers } from "./create-managers"
 import { createTools } from "./create-tools"
+import { createTestToolContext } from "./test-helpers/tool-context"
 
 function createPhysicalToolInput() {
   return {
@@ -150,6 +152,10 @@ function createReviewToolInput() {
   }
 }
 
+function createBundleToolInput() {
+  return createScn01SingleRackConnectivityFixture()
+}
+
 describe("createTools", () => {
   test("registers describe_cloud_solution tool", async () => {
     const config = loadPluginConfig(process.cwd())
@@ -167,7 +173,7 @@ describe("createTools", () => {
 
     const response = await tools.describe_cloud_solution.execute(
       { include_examples: true },
-      { sessionID: "tool-test-session" },
+      createTestToolContext({ sessionID: "tool-test-session" }),
     )
     const parsed = JSON.parse(response)
 
@@ -223,7 +229,7 @@ describe("createTools", () => {
           },
         ],
       },
-      { sessionID: "tool-test-session" },
+      createTestToolContext({ sessionID: "tool-test-session" }),
     )
     const parsed = JSON.parse(response)
 
@@ -288,7 +294,7 @@ describe("createTools", () => {
           },
         ],
       },
-      { sessionID: "tool-test-session" },
+      createTestToolContext({ sessionID: "tool-test-session" }),
     )
     const parsed = JSON.parse(response)
 
@@ -314,7 +320,7 @@ describe("createTools", () => {
 
     const response = await tools.generate_device_cabling_table.execute(
       createPhysicalToolInput(),
-      { sessionID: "tool-test-session" },
+      createTestToolContext({ sessionID: "tool-test-session" }),
     )
     const parsed = JSON.parse(response)
 
@@ -340,7 +346,7 @@ describe("createTools", () => {
 
     const response = await tools.generate_device_port_plan.execute(
       createPhysicalToolInput(),
-      { sessionID: "tool-test-session" },
+      createTestToolContext({ sessionID: "tool-test-session" }),
     )
     const parsed = JSON.parse(response)
 
@@ -364,7 +370,7 @@ describe("createTools", () => {
 
     const response = await tools.generate_device_cabling_table.execute(
       createStructuredPhysicalToolInput(),
-      { sessionID: "tool-test-session" },
+      createTestToolContext({ sessionID: "tool-test-session" }),
     )
     const parsed = JSON.parse(response)
 
@@ -405,7 +411,7 @@ describe("createTools", () => {
         ],
         allocations: [],
       },
-      { sessionID: "tool-test-session" },
+      createTestToolContext({ sessionID: "tool-test-session" }),
     )
     const parsed = JSON.parse(response)
 
@@ -465,7 +471,7 @@ describe("createTools", () => {
           },
         ],
       },
-      { sessionID: "tool-test-session" },
+      createTestToolContext({ sessionID: "tool-test-session" }),
     )
     const parsed = JSON.parse(response)
 
@@ -489,7 +495,7 @@ describe("createTools", () => {
 
     const response = await tools.summarize_design_gaps.execute(
       createReviewToolInput(),
-      { sessionID: "tool-test-session" },
+      createTestToolContext({ sessionID: "tool-test-session" }),
     )
     const parsed = JSON.parse(response)
 
@@ -499,5 +505,74 @@ describe("createTools", () => {
     expect(parsed.artifact.name).toBe("design-assumptions-and-gaps.md")
     expect(parsed.artifact.content).toContain("## Assumptions")
     expect(parsed.artifact.content).toContain("device-switch-a")
+  })
+
+  test("registers export_artifact_bundle and returns requested artifacts plus review outputs", async () => {
+    const config = loadPluginConfig(process.cwd())
+    const managers = createManagers({
+      context: { directory: process.cwd() },
+      pluginConfig: config,
+    })
+
+    const tools = createTools({
+      pluginConfig: config,
+      managers,
+    })
+
+    expect(Object.keys(tools)).toContain("export_artifact_bundle")
+
+    const response = await tools.export_artifact_bundle.execute(
+      createBundleToolInput(),
+      createTestToolContext({ sessionID: "tool-test-session" }),
+    )
+    const parsed = JSON.parse(response)
+
+    expect(parsed.exportReady).toBe(true)
+    expect(parsed.reviewRequired).toBe(false)
+    expect(parsed.requestedArtifactTypes).toEqual([
+      "device-cabling-table",
+      "device-port-plan",
+      "device-port-connection-table",
+      "ip-allocation-table",
+    ])
+    expect(parsed.includedArtifactNames).toEqual([
+      "artifact-bundle-index.md",
+      "design-assumptions-and-gaps.md",
+      "device-cabling-table.md",
+      "device-port-plan.md",
+      "port-connection-table.md",
+      "ip-allocation-table.md",
+    ])
+    expect(parsed.bundleIndex.content).toContain("## Included Files")
+  })
+
+  test("injects default artifact requests into export bundles when omitted", async () => {
+    const config = loadPluginConfig(process.cwd())
+    const managers = createManagers({
+      context: { directory: process.cwd() },
+      pluginConfig: config,
+    })
+
+    const tools = createTools({
+      pluginConfig: config,
+      managers,
+    })
+
+    const bundleInput = createBundleToolInput()
+    const response = await tools.export_artifact_bundle.execute(
+      {
+        ...bundleInput,
+        requirement: {
+          ...bundleInput.requirement,
+          artifactRequests: [],
+        },
+      },
+      createTestToolContext({ sessionID: "tool-test-session" }),
+    )
+    const parsed = JSON.parse(response)
+
+    expect(parsed.requestedArtifactTypes).toEqual(config.default_artifacts)
+    expect(parsed.exportReady).toBe(true)
+    expect(parsed.artifacts).toHaveLength(6)
   })
 })

@@ -14,6 +14,9 @@ function createBaseSliceInput(): CloudSolutionSliceInput {
       statusConfidence: "confirmed",
     },
     devices: [],
+    racks: [],
+    ports: [],
+    links: [],
     segments: [
       {
         id: "segment-management",
@@ -70,6 +73,8 @@ describe("buildIpAllocationTableArtifact", () => {
         severity: "blocking",
         code: "segment_cidr_required",
         message: "Segment segment-management requires a CIDR for type mgmt.",
+        subjectType: "segment",
+        subjectId: "segment-management",
         entityRefs: ["segment:segment-management"],
         blocking: true,
       },

@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test"
 
 import {
+  ArtifactBundleExportSchema,
   CloudSolutionSliceInputSchema,
   CloudSolutionModelSchema,
+  DesignGapSummarySchema,
   DesignReviewItemRowSchema,
   DeviceCablingTableRowSchema,
   DevicePortPlanRowSchema,
@@ -15,6 +17,7 @@ import {
   PortSchema,
   RackSchema,
   SolutionRequirementSchema,
+  ValidationSummarySchema,
   ValidationIssueSchema,
 } from "./cloud-domain-schema"
 
@@ -202,6 +205,78 @@ describe("cloud domain schemas", () => {
 
     expect(assumptionRow.kind).toBe("assumption")
     expect(gapRow.severity).toBe("blocking")
+  })
+
+  test("accepts validation, review, and bundle export summaries", () => {
+    const validationSummary = ValidationSummarySchema.parse({
+      valid: true,
+      blockingIssueCount: 0,
+      warningCount: 1,
+      informationalIssueCount: 0,
+      issues: [],
+    })
+
+    const reviewSummary = DesignGapSummarySchema.parse({
+      reviewRequired: true,
+      blockingGapCount: 0,
+      assumptionCount: 1,
+      unresolvedItemCount: 0,
+      assumptions: [
+        {
+          kind: "assumption",
+          severity: "warning",
+          subjectType: "device",
+          subjectId: "device-a",
+          title: "Assumed device fact",
+          detail: "device device-a is currently inferred and should be reviewed before export.",
+          confidenceState: "inferred",
+          entityRefs: ["device:device-a"],
+          sourceRefs: [],
+        },
+      ],
+      gaps: [],
+      unresolvedItems: [],
+      artifact: {
+        name: "design-assumptions-and-gaps.md",
+        mimeType: "text/markdown",
+        content: "# Design Assumptions and Gaps",
+      },
+    })
+
+    const bundleExport = ArtifactBundleExportSchema.parse({
+      exportReady: false,
+      reviewRequired: true,
+      requestedArtifactTypes: ["device-cabling-table", "ip-allocation-table"],
+      includedArtifactNames: [
+        "artifact-bundle-index.md",
+        "design-assumptions-and-gaps.md",
+        "device-cabling-table.md",
+        "ip-allocation-table.md",
+      ],
+      validationSummary,
+      reviewSummary,
+      bundleIndex: {
+        name: "artifact-bundle-index.md",
+        mimeType: "text/markdown",
+        content: "# Artifact Bundle Index",
+      },
+      artifacts: [
+        {
+          name: "artifact-bundle-index.md",
+          mimeType: "text/markdown",
+          content: "# Artifact Bundle Index",
+        },
+        {
+          name: "design-assumptions-and-gaps.md",
+          mimeType: "text/markdown",
+          content: "# Design Assumptions and Gaps",
+        },
+      ],
+    })
+
+    expect(validationSummary.valid).toBe(true)
+    expect(reviewSummary.assumptionCount).toBe(1)
+    expect(bundleExport.includedArtifactNames).toContain("artifact-bundle-index.md")
   })
 
   test("accepts an SCN-01 physical slice input and row contracts", () => {

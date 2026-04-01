@@ -2,6 +2,10 @@ import { describe, expect, test } from "bun:test"
 
 import type { CloudSolutionSliceInput } from "../domain"
 import {
+  createScn02DualTorFixture,
+  createScn03MultiRackPodFixture,
+} from "../scenarios/fixtures"
+import {
   hasBlockingIssues,
   validateCloudSolutionModel,
 } from "./validate-cloud-solution-model"
@@ -480,6 +484,159 @@ describe("validateCloudSolutionModel", () => {
 
     expect(redundancyIssue?.severity).toBe("warning")
     expect(hasBlockingIssues(issues)).toBe(false)
+  })
+
+  test("blocks dual-homed-required devices that connect to only one distinct peer device", () => {
+    const baseInput = createScn02DualTorFixture()
+    const issues = validateCloudSolutionModel({
+      ...baseInput,
+      links: baseInput.links.map((link) =>
+        link.id === "link-storage-a-secondary"
+          ? {
+              ...link,
+              endpointA: { portId: "port-tor-a-2" },
+            }
+          : link,
+      ),
+    })
+
+    const redundancyIssue = issues.find(
+      (issue) => issue.code === "device_redundancy_peers_insufficient",
+    )
+
+    expect(redundancyIssue?.severity).toBe("blocking")
+    expect(hasBlockingIssues(issues)).toBe(true)
+  })
+
+  test("warns when dual-homing is preferred but only one distinct peer device exists", () => {
+    const baseInput = createScn02DualTorFixture()
+    const issues = validateCloudSolutionModel({
+      ...baseInput,
+      devices: baseInput.devices.map((device) =>
+        device.id === "device-storage-a"
+          ? {
+              ...device,
+              redundancyIntent: "dual-homed-preferred" as const,
+            }
+          : device,
+      ),
+      links: baseInput.links.map((link) =>
+        link.id === "link-storage-a-secondary"
+          ? {
+              ...link,
+              endpointA: { portId: "port-tor-a-2" },
+            }
+          : link,
+      ),
+    })
+
+    const redundancyIssue = issues.find(
+      (issue) => issue.code === "device_redundancy_peers_insufficient",
+    )
+
+    expect(redundancyIssue?.severity).toBe("warning")
+    expect(hasBlockingIssues(issues)).toBe(false)
+  })
+
+  test("blocks required redundancy when redundancyGroup is missing", () => {
+    const baseInput = createScn02DualTorFixture()
+    const issues = validateCloudSolutionModel({
+      ...baseInput,
+      links: baseInput.links.map((link) =>
+        link.id.startsWith("link-storage-a")
+          ? {
+              ...link,
+              redundancyGroup: undefined,
+            }
+          : link,
+      ),
+    })
+
+    expect(issues.map((issue) => issue.code)).toContain("redundancy_group_missing")
+    expect(hasBlockingIssues(issues)).toBe(true)
+  })
+
+  test("blocks required redundancy when redundancyGroup is inconsistent", () => {
+    const baseInput = createScn02DualTorFixture()
+    const issues = validateCloudSolutionModel({
+      ...baseInput,
+      links: baseInput.links.map((link) =>
+        link.id === "link-storage-a-secondary"
+          ? {
+              ...link,
+              redundancyGroup: "storage-a-dual-home-alt",
+            }
+          : link,
+      ),
+    })
+
+    expect(issues.map((issue) => issue.code)).toContain("redundancy_group_inconsistent")
+    expect(hasBlockingIssues(issues)).toBe(true)
+  })
+
+  test("reports missing rack assignment for rack-aware port connection requests", () => {
+    const baseInput = createScn03MultiRackPodFixture()
+    const issues = validateCloudSolutionModel({
+      ...baseInput,
+      devices: baseInput.devices.map((device) =>
+        device.id === "device-leaf-a"
+          ? {
+              ...device,
+              rackId: undefined,
+            }
+          : device,
+      ),
+    })
+
+    expect(issues.map((issue) => issue.code)).toContain("device_rack_required")
+    expect(hasBlockingIssues(issues)).toBe(true)
+  })
+
+  test("reports invalid rack assignment for rack-aware port connection requests", () => {
+    const baseInput = createScn03MultiRackPodFixture()
+    const issues = validateCloudSolutionModel({
+      ...baseInput,
+      devices: baseInput.devices.map((device) =>
+        device.id === "device-leaf-a"
+          ? {
+              ...device,
+              rackId: "rack-missing",
+            }
+          : device,
+      ),
+    })
+
+    expect(issues.map((issue) => issue.code)).toContain("device_rack_missing")
+    expect(hasBlockingIssues(issues)).toBe(true)
+  })
+
+  test("blocks links marked inter-rack when both endpoints resolve to the same rack", () => {
+    const baseInput = createScn03MultiRackPodFixture()
+    const issues = validateCloudSolutionModel({
+      ...baseInput,
+      devices: baseInput.devices.map((device) =>
+        device.id === "device-leaf-b"
+          ? {
+              ...device,
+              rackId: "rack-a",
+            }
+          : device,
+      ),
+    })
+
+    expect(issues.map((issue) => issue.code)).toContain("inter_rack_link_same_rack")
+    expect(hasBlockingIssues(issues)).toBe(true)
+  })
+
+  test("blocks multi-rack connection planning when no cross-rack links remain", () => {
+    const baseInput = createScn03MultiRackPodFixture()
+    const issues = validateCloudSolutionModel({
+      ...baseInput,
+      links: baseInput.links.filter((link) => link.id !== "link-inter-rack"),
+    })
+
+    expect(issues.map((issue) => issue.code)).toContain("multi_rack_links_missing")
+    expect(hasBlockingIssues(issues)).toBe(true)
   })
 
   test("reports ports that reference missing devices", () => {

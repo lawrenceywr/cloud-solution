@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 
 import { createCloudSolutionRuntime } from "./index"
+import { createScn01SingleRackConnectivityFixture } from "./scenarios/fixtures"
 
 function createPhysicalRuntimeInput() {
   return {
@@ -146,6 +147,10 @@ function createReviewRuntimeInput() {
     segments: [],
     allocations: [],
   }
+}
+
+function createBundleRuntimeInput() {
+  return createScn01SingleRackConnectivityFixture()
 }
 
 describe("createCloudSolutionRuntime", () => {
@@ -444,5 +449,22 @@ describe("createCloudSolutionRuntime", () => {
     expect(parsed.artifact.name).toBe("design-assumptions-and-gaps.md")
     expect(parsed.artifact.content).toContain("Design Assumptions and Gaps")
     expect(parsed.artifact.content).toContain("device-switch-a")
+  })
+
+  test("invokes export_artifact_bundle through the runtime kernel", async () => {
+    const runtime = createCloudSolutionRuntime(process.cwd())
+
+    const result = await runtime.kernel.invokeTool({
+      toolName: "export_artifact_bundle",
+      sessionID: "runtime-bundle-session",
+      args: createBundleRuntimeInput(),
+    })
+    const parsed = JSON.parse(result)
+
+    expect(parsed.exportReady).toBe(true)
+    expect(parsed.validationSummary.valid).toBe(true)
+    expect(parsed.artifacts).toHaveLength(6)
+    expect(parsed.bundleIndex.name).toBe("artifact-bundle-index.md")
+    expect(parsed.includedArtifactNames).toContain("design-assumptions-and-gaps.md")
   })
 })

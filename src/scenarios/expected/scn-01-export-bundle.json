@@ -1,0 +1,38 @@
+{
+  "exportReady": true,
+  "reviewRequired": false,
+  "requestedArtifactTypes": [
+    "device-cabling-table",
+    "device-port-plan",
+    "device-port-connection-table",
+    "ip-allocation-table"
+  ],
+  "includedArtifactNames": [
+    "artifact-bundle-index.md",
+    "design-assumptions-and-gaps.md",
+    "device-cabling-table.md",
+    "device-port-plan.md",
+    "port-connection-table.md",
+    "ip-allocation-table.md"
+  ],
+  "validationSummary": {
+    "valid": true,
+    "blockingIssueCount": 0,
+    "warningCount": 0,
+    "informationalIssueCount": 0
+  },
+  "reviewSummary": {
+    "reviewRequired": false,
+    "blockingGapCount": 0,
+    "assumptionCount": 0,
+    "unresolvedItemCount": 0
+  },
+  "artifactContents": {
+    "artifact-bundle-index.md": "# Artifact Bundle Index\n\nProject: SCN-01 Single Rack Basic Connectivity\nExport Ready: yes\nReview Required: no\nIncluded File Count: 6\nValidation Valid: yes\nBlocking Issue Count: 0\nWarning Count: 0\nInformational Issue Count: 0\nAssumption Count: 0\nGap Count: 0\nUnresolved Item Count: 0\n\n## Requested Artifact Types\n- device-cabling-table\n- device-port-plan\n- device-port-connection-table\n- ip-allocation-table\n\n## Included Files\n- artifact-bundle-index.md\n- design-assumptions-and-gaps.md\n- device-cabling-table.md\n- device-port-plan.md\n- port-connection-table.md\n- ip-allocation-table.md",
+    "design-assumptions-and-gaps.md": "# Design Assumptions and Gaps\n\nProject: SCN-01 Single Rack Basic Connectivity\nReview Required: no\nAssumption Count: 0\nGap Count: 0\nUnresolved Item Count: 0\n\n## Assumptions\nNo assumptions were derived from the current validated model.\n\n## Blocking Gaps\nNo blocking gaps were found.\n\n## Unresolved Review Items\nNo unresolved review items were found.",
+    "device-cabling-table.md": "# Device Cabling Table\n\nProject: SCN-01 Single Rack Basic Connectivity\nStatus: ready\nRack count: 1\nDevice count: 3\nLink count: 2\nIssue count: 0\n\n## Cabling Rows\n| Link ID | Endpoint A Rack | Endpoint A Device | Endpoint A Port | Endpoint B Rack | Endpoint B Device | Endpoint B Port | Purpose | Redundancy Group |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| link-server-a | rack-a (rack-a) U1 | switch-a (device-switch-a) | eth0 (port-switch-a-1) | rack-a (rack-a) U10 | server-a (device-server-a) | eth0 (port-server-a-1) | server-a-uplink | - |\n| link-server-b | rack-a (rack-a) U1 | switch-a (device-switch-a) | eth1 (port-switch-a-2) | rack-a (rack-a) U14 | server-b (device-server-b) | eth0 (port-server-b-1) | server-b-uplink | - |",
+    "device-port-plan.md": "# Device Port Plan\n\nProject: SCN-01 Single Rack Basic Connectivity\nStatus: ready\nRack count: 1\nDevice count: 3\nPort count: 4\nIssue count: 0\n\n## Port Plan Rows\n| Rack | Rack Units | Device | Port | Purpose | Connections | Peer Endpoints | Redundancy Groups |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| rack-a (rack-a) | U1 (1U) | switch-a (device-switch-a) | eth0 (port-switch-a-1) | server-uplink-a | link-server-a | server-a (device-server-a) / eth0 (port-server-a-1) | - |\n| rack-a (rack-a) | U1 (1U) | switch-a (device-switch-a) | eth1 (port-switch-a-2) | server-uplink-b | link-server-b | server-b (device-server-b) / eth0 (port-server-b-1) | - |\n| rack-a (rack-a) | U10 (2U) | server-a (device-server-a) | eth0 (port-server-a-1) | management | link-server-a | switch-a (device-switch-a) / eth0 (port-switch-a-1) | - |\n| rack-a (rack-a) | U14 (2U) | server-b (device-server-b) | eth0 (port-server-b-1) | management | link-server-b | switch-a (device-switch-a) / eth1 (port-switch-a-2) | - |",
+    "port-connection-table.md": "# Port Connection Table\n\nProject: SCN-01 Single Rack Basic Connectivity\nStatus: ready\nDevice count: 3\nPort count: 4\nLink count: 2\nIssue count: 0\n\n## Connection Rows\n| Link ID | Endpoint A Rack | Endpoint A Device | Endpoint A Port | Endpoint B Rack | Endpoint B Device | Endpoint B Port | Purpose | Redundancy Group |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| link-server-a | rack-a (rack-a) U1 | switch-a (device-switch-a) | eth0 (port-switch-a-1) | rack-a (rack-a) U10 | server-a (device-server-a) | eth0 (port-server-a-1) | server-a-uplink | - |\n| link-server-b | rack-a (rack-a) U1 | switch-a (device-switch-a) | eth1 (port-switch-a-2) | rack-a (rack-a) U14 | server-b (device-server-b) | eth0 (port-server-b-1) | server-b-uplink | - |",
+    "ip-allocation-table.md": "# IP Allocation Table\n\nProject: SCN-01 Single Rack Basic Connectivity\nStatus: ready\nSegment count: 1\nDevice count: 3\nIssue count: 0\n\n## Allocation Rows\n| Allocation ID | Segment | CIDR | Type | IP Address | Consumer | Gateway | Purpose |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| allocation-gateway | management (segment-management) | 10.10.0.0/24 | gateway | 10.10.0.1 | - | 10.10.0.1 | management |\n| allocation-server-a | management (segment-management) | 10.10.0.0/24 | device | 10.10.0.10 | device-server-a / eth0 | 10.10.0.1 | management |\n| allocation-server-b | management (segment-management) | 10.10.0.0/24 | device | 10.10.0.11 | device-server-b / eth0 | 10.10.0.1 | management |"
+  }
+}

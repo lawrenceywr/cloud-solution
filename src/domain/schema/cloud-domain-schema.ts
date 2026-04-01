@@ -137,6 +137,9 @@ export const ValidationIssueCodeSchema = z.enum([
   "ip_allocations_missing",
   "network_fact_not_confirmed",
   "device_redundancy_links_insufficient",
+  "device_redundancy_peers_insufficient",
+  "redundancy_group_missing",
+  "redundancy_group_inconsistent",
   "segment_cidr_required",
   "segment_cidr_invalid",
   "segment_gateway_invalid",
@@ -154,6 +157,8 @@ export const ValidationIssueCodeSchema = z.enum([
   "link_port_missing",
   "link_self_reference",
   "duplicate_link_connection",
+  "inter_rack_link_same_rack",
+  "multi_rack_links_missing",
   "rack_position_overlap",
   "rack_position_exceeds_height",
 ])
@@ -281,6 +286,36 @@ export const GeneratedArtifactSchema = z.object({
   content: z.string(),
 })
 
+export const ValidationSummarySchema = z.object({
+  valid: z.boolean(),
+  blockingIssueCount: z.number().int().nonnegative(),
+  warningCount: z.number().int().nonnegative(),
+  informationalIssueCount: z.number().int().nonnegative(),
+  issues: z.array(ValidationIssueSchema),
+})
+
+export const DesignGapSummarySchema = z.object({
+  reviewRequired: z.boolean(),
+  blockingGapCount: z.number().int().nonnegative(),
+  assumptionCount: z.number().int().nonnegative(),
+  unresolvedItemCount: z.number().int().nonnegative(),
+  assumptions: z.array(DesignReviewItemRowSchema),
+  gaps: z.array(DesignReviewItemRowSchema),
+  unresolvedItems: z.array(DesignReviewItemRowSchema),
+  artifact: GeneratedArtifactSchema,
+})
+
+export const ArtifactBundleExportSchema = z.object({
+  exportReady: z.boolean(),
+  reviewRequired: z.boolean(),
+  requestedArtifactTypes: z.array(ArtifactTypeSchema),
+  includedArtifactNames: z.array(z.string()),
+  validationSummary: ValidationSummarySchema,
+  reviewSummary: DesignGapSummarySchema,
+  bundleIndex: GeneratedArtifactSchema,
+  artifacts: z.array(GeneratedArtifactSchema),
+})
+
 export const CloudSolutionModelSchema = CloudSolutionSliceInputSchema.extend({
   issues: z.array(ValidationIssueSchema).default([]),
 })
@@ -321,4 +356,7 @@ export type DesignReviewItemRow = z.infer<typeof DesignReviewItemRowSchema>
 export type IpAllocationTableRow = z.infer<typeof IpAllocationTableRowSchema>
 export type PortConnectionTableRow = z.infer<typeof PortConnectionTableRowSchema>
 export type GeneratedArtifact = z.infer<typeof GeneratedArtifactSchema>
+export type ValidationSummary = z.infer<typeof ValidationSummarySchema>
+export type DesignGapSummary = z.infer<typeof DesignGapSummarySchema>
+export type ArtifactBundleExport = z.infer<typeof ArtifactBundleExportSchema>
 export type CloudSolutionModel = z.infer<typeof CloudSolutionModelSchema>

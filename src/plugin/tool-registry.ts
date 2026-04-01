@@ -2,6 +2,7 @@ import type { CloudSolutionConfig } from "../config"
 import type { Managers } from "../create-managers"
 import {
   createDescribeCloudSolutionTools,
+  createExportArtifactBundleTools,
   createGenerateDeviceCablingTableTools,
   createGenerateDevicePortPlanTools,
   createGenerateIpAllocationTableTools,
@@ -23,6 +24,9 @@ export function createToolRegistry(args: {
     ...createDescribeCloudSolutionTools({
       pluginConfig,
       managers,
+    }),
+    ...createExportArtifactBundleTools({
+      pluginConfig,
     }),
     ...createGenerateDeviceCablingTableTools(),
     ...createGenerateDevicePortPlanTools(),

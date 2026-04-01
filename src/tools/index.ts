@@ -1,4 +1,5 @@
 export * from "./describe-cloud-solution"
+export * from "./export-artifact-bundle"
 export * from "./generate-device-cabling-table"
 export * from "./generate-device-port-plan"
 export * from "./generate-ip-allocation-table"

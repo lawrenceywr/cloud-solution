@@ -1,3 +1,5 @@
+export * from "./artifact-bundle"
+export * from "./design-gap-report"
 export * from "./device-cabling-table"
 export * from "./device-port-plan"
 export * from "./ip-allocation-table"

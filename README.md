@@ -103,6 +103,9 @@ This directory now contains:
 - a first normalization layer for structured physical/network input into the canonical model
 - confirmation gating that blocks weak physical and IP facts from driving final artifacts
 - a deterministic `summarize_design_gaps` review tool and assumption report renderer
+- a deterministic `export_artifact_bundle` workflow that packages requested artifacts, review output, and a bundle index
+- checked-in `SCN-01` to `SCN-03` bundle regression baselines
+- deeper deterministic validation for SCN-02 dual-homing and SCN-03 multi-rack semantics
 
 The current implementation covers:
 
@@ -113,6 +116,9 @@ The current implementation covers:
 5. canonical scenario acceptance for `SCN-01` to `SCN-03`
 6. structured-input normalization before validation/tool execution
 7. review-ready assumptions/gaps reporting from validated model state
+8. export-ready artifact bundle packaging on top of validated/reviewed outputs
+9. checked-in bundle regression baselines for SCN-01 to SCN-03
+10. stronger deterministic SCN-02 and SCN-03 rule depth before agent work
 
 The current framework maturity is:
 
@@ -124,7 +130,5 @@ The roadmap MVP done criteria are now satisfied on this branch.
 
 The next development focus is post-MVP:
 
-1. artifact bundle/export workflow on top of review reporting
-2. richer snapshot maintenance for canonical scenarios
-3. agent/background workflow orchestration after the export/review foundation is stronger
-4. optional multimodal drafting and later integrations without weakening the trust boundary
+1. agent/background workflow orchestration after the export/review foundation is stronger
+2. optional multimodal drafting and later integrations without weakening the trust boundary
