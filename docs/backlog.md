@@ -28,16 +28,20 @@ Completed in this stage:
 11. add a deterministic `export_artifact_bundle` workflow that packages requested artifacts, review output, and a bundle index
 12. lock `SCN-01` to `SCN-03` export-bundle outputs into checked-in scenario regression baselines
 13. deepen `SCN-02` redundancy validation and `SCN-03` multi-rack validation before any agent work starts
+14. add a thin `solution-review-workflow` coordinator in `src/features/` before starting any agent work
+15. add a first `start_solution_review_workflow` orchestration launcher on top of the deterministic coordinator
+16. add the first deterministic `src/agents/` handoff brief for solution review follow-up
+17. add the first actual `solution_review_assistant` agent response on top of the handoff brief
 
 Framework status right now:
 
 1. the plugin boot flow, runtime kernel, tool registry, and basic readiness guard are implemented
-2. deterministic model/artifact/review tools are implemented and verified end to end
-3. `src/agents/` and `src/features/` are still empty, so agent orchestration, inter-agent communication, and background review workflows are not implemented yet
+2. deterministic model/artifact/review tools plus a first workflow launcher are implemented and verified end to end
+3. `src/features/` now contains deterministic review/export coordination and one orchestration launcher, and `src/agents/` now contains a first actual review assistant, but no inter-agent communication or multi-agent orchestration exists yet
 
 Active next focus:
 
-1. agent/background workflow orchestration only after the export/review foundation is in place
+1. inter-agent communication and richer agent-layer orchestration on top of the new workflow launcher and first review assistant
 2. post-MVP extensions such as multimodal drafting and external integrations
 
 ## Progress Table
@@ -58,6 +62,10 @@ Active next focus:
 | BL-012 | completed | `export_artifact_bundle` now packages requested artifacts, review output, and a bundle index in one deterministic export response. |
 | BL-013 | completed | `SCN-01` to `SCN-03` export bundles are now locked with checked-in regression baselines. |
 | BL-014 | completed | SCN-02 dual-homing and SCN-03 multi-rack validation depth now cover the next deterministic edge cases. |
+| BL-015 | completed | `solution-review-workflow` now coordinates normalized validation, review summary, and export state before any agent layer exists. |
+| BL-016 | completed | `start_solution_review_workflow` now launches a tracked queued→running→terminal orchestration flow before any agent layer exists. |
+| BL-017 | completed | `solution_review_assistant` handoff briefs now package workflow results into a deterministic agent-facing contract. |
+| BL-018 | completed | `solution_review_assistant` now produces deterministic response/checklist output from workflow handoff state. |
 
 ## Ordered Backlog
 
@@ -199,6 +207,50 @@ Active next focus:
   - redundant links must carry consistent redundancy-group metadata
   - rack-aware port-connection planning rejects missing rack assignments
   - inter-rack and multi-rack connection semantics are checked deterministically
+
+### BL-015 - Add a thin review/export workflow coordinator [completed]
+
+- **Goal**: add the smallest `src/features/` orchestration layer before agent development
+- **Depends on**: `BL-011`, `BL-012`, `BL-013`, `BL-014`
+- **Source docs**: `docs/architecture.md`, `docs/roadmap.md`
+- **Acceptance**:
+  - `src/features/solution-review-workflow.ts` coordinates normalization, validation, review summary, and export bundle state
+  - `summarize_design_gaps` and `export_artifact_bundle` share the same workflow-state logic
+  - workflow output distinguishes `blocked`, `review_required`, and `export_ready`
+  - no agent/background worker implementation is introduced yet
+
+### BL-016 - Add the first orchestration launcher [completed]
+
+- **Goal**: add the first user-facing orchestration step before starting agent implementation
+- **Depends on**: `BL-015`
+- **Source docs**: `docs/architecture.md`, `docs/roadmap.md`
+- **Acceptance**:
+  - `start_solution_review_workflow` is registered and invokable end to end
+  - output includes queued/running/terminal orchestration transitions
+  - the launcher exposes `blocked`, `review_required`, and `export_ready` without inventing new artifact data
+  - non-ready paths do not expose an export bundle
+
+### BL-017 - Add the first agent-facing handoff contract [completed]
+
+- **Goal**: add the smallest deterministic `src/agents/` slice on top of the orchestration launcher
+- **Depends on**: `BL-016`
+- **Source docs**: `docs/architecture.md`, `docs/roadmap.md`
+- **Acceptance**:
+  - `src/agents/solution-review-brief.ts` defines a deterministic agent brief for workflow follow-up
+  - `start_solution_review_workflow` returns the workflow result plus `agentBrief`
+  - the brief distinguishes blocked, review-required, export-ready, and failed follow-up goals
+  - no inter-agent messaging or broad agent runtime is introduced yet
+
+### BL-018 - Add the first actual review assistant [completed]
+
+- **Goal**: complete the first actual agent layer slice without introducing a broad agent platform
+- **Depends on**: `BL-017`
+- **Source docs**: `docs/architecture.md`, `docs/roadmap.md`
+- **Acceptance**:
+  - `src/agents/solution-review-assistant.ts` consumes `SolutionReviewAgentBrief`
+  - the assistant returns deterministic response/checklist output for blocked, review-required, export-ready, and failed states
+  - `start_solution_review_workflow` returns both `agentBrief` and `agentResponse`
+  - no inter-agent communication or multi-agent orchestration is introduced yet
 
 ## Not Scheduled Yet
 

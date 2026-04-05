@@ -106,6 +106,10 @@ This directory now contains:
 - a deterministic `export_artifact_bundle` workflow that packages requested artifacts, review output, and a bundle index
 - checked-in `SCN-01` to `SCN-03` bundle regression baselines
 - deeper deterministic validation for SCN-02 dual-homing and SCN-03 multi-rack semantics
+- a thin deterministic `solution-review-workflow` coordinator in `src/features/`
+- a first `start_solution_review_workflow` orchestration launcher over that coordinator
+- a first deterministic `solution_review_assistant` brief in `src/agents/`
+- a first actual `solution_review_assistant` response module built on that brief
 
 The current implementation covers:
 
@@ -119,16 +123,20 @@ The current implementation covers:
 8. export-ready artifact bundle packaging on top of validated/reviewed outputs
 9. checked-in bundle regression baselines for SCN-01 to SCN-03
 10. stronger deterministic SCN-02 and SCN-03 rule depth before agent work
+11. a shared workflow-state coordinator for review/export before any agent layer exists
+12. a tracked queued→running→terminal workflow launcher before any agent layer exists
+13. a deterministic agent-facing handoff brief for review/export follow-up
+14. a first actual review assistant that turns handoff state into deterministic agent output
 
 The current framework maturity is:
 
 1. plugin boot flow, runtime kernel, tool registry, and one pre-execution readiness guard are implemented
-2. tool-driven validation, artifact generation, and review summary flows are implemented end to end
-3. agent orchestration, inter-agent communication, and background workflow modules are not implemented yet (`src/agents/` and `src/features/` are still empty)
+2. tool-driven validation, artifact generation, review summary, a feature-level coordinator, a workflow launcher, an agent handoff brief, and a first actual review assistant are implemented end to end
+3. inter-agent communication and broader agent orchestration are not implemented yet
 
 The roadmap MVP done criteria are now satisfied on this branch.
 
 The next development focus is post-MVP:
 
-1. agent/background workflow orchestration after the export/review foundation is stronger
+1. inter-agent communication and richer agent-layer orchestration on top of the new workflow launcher and first review assistant
 2. optional multimodal drafting and later integrations without weakening the trust boundary

@@ -10,6 +10,7 @@ import {
 } from "./fixtures"
 
 type NormalizedBundleSnapshot = {
+  workflowState: string
   exportReady: boolean
   reviewRequired: boolean
   requestedArtifactTypes: string[]
@@ -30,6 +31,7 @@ type NormalizedBundleSnapshot = {
 }
 
 function normalizeBundle(bundle: {
+  workflowState: string
   exportReady: boolean
   reviewRequired: boolean
   requestedArtifactTypes: string[]
@@ -49,6 +51,7 @@ function normalizeBundle(bundle: {
   artifacts: Array<{ name: string; content: string }>
 }): NormalizedBundleSnapshot {
   return {
+    workflowState: bundle.workflowState,
     exportReady: bundle.exportReady,
     reviewRequired: bundle.reviewRequired,
     requestedArtifactTypes: bundle.requestedArtifactTypes,

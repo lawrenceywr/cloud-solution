@@ -42,7 +42,7 @@ function createToolContext(
     messageID: "cloud-solution-message",
     agent: "cloud-solution",
     directory: context.directory,
-    worktree: context.directory,
+    worktree: context.worktree ?? context.directory,
     abort: new AbortController().signal,
     metadata(): void {},
     async ask(): Promise<void> {},

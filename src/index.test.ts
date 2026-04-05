@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 
 import { createCloudSolutionRuntime } from "./index"
 import { createScn01SingleRackConnectivityFixture } from "./scenarios/fixtures"
+import { createFakeCoordinatorClient } from "./test-helpers/fake-coordinator-client"
 
 function createPhysicalRuntimeInput() {
   return {
@@ -159,6 +160,7 @@ describe("createCloudSolutionRuntime", () => {
 
     expect(runtime.pluginConfig.plugin_name).toBe("cloud-solution")
     expect(Object.keys(runtime.tools)).toContain("describe_cloud_solution")
+    expect(Object.keys(runtime.tools)).not.toContain("start_coordinator_workflow")
     expect(runtime.pluginInterface.tool).toBe(runtime.tools)
 
     const result = await runtime.kernel.invokeTool({
@@ -168,6 +170,17 @@ describe("createCloudSolutionRuntime", () => {
     const parsed = JSON.parse(result)
 
     expect(parsed.trustBoundary).toContain("canonical-domain-model")
+  })
+
+  test("does not expose start_coordinator_workflow through the runtime kernel", async () => {
+    const runtime = createCloudSolutionRuntime(process.cwd())
+
+    await expect(
+      runtime.kernel.invokeTool({
+        toolName: "start_coordinator_workflow",
+        sessionID: "runtime-coordinator-session",
+      }),
+    ).rejects.toThrow("Unknown tool: start_coordinator_workflow")
   })
 
   test("invokes the validation slice through the runtime kernel", async () => {
@@ -444,6 +457,7 @@ describe("createCloudSolutionRuntime", () => {
     })
     const parsed = JSON.parse(result)
 
+    expect(parsed.workflowState).toBe("review_required")
     expect(parsed.reviewRequired).toBe(true)
     expect(parsed.assumptions).toHaveLength(1)
     expect(parsed.artifact.name).toBe("design-assumptions-and-gaps.md")
@@ -461,10 +475,102 @@ describe("createCloudSolutionRuntime", () => {
     })
     const parsed = JSON.parse(result)
 
+    expect(parsed.workflowState).toBe("export_ready")
     expect(parsed.exportReady).toBe(true)
     expect(parsed.validationSummary.valid).toBe(true)
     expect(parsed.artifacts).toHaveLength(6)
     expect(parsed.bundleIndex.name).toBe("artifact-bundle-index.md")
     expect(parsed.includedArtifactNames).toContain("design-assumptions-and-gaps.md")
+  })
+
+  test("invokes start_solution_review_workflow through the runtime kernel", async () => {
+    const { client, createCalls, promptCalls } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "requirements-clarification",
+          status: "success",
+          output: {
+            missingFields: [],
+            clarificationQuestions: [],
+            suggestions: [],
+          },
+          recommendations: ["输入完整，无需澄清"],
+        }),
+        JSON.stringify({
+          workerId: "solution-review-assistant",
+          status: "success",
+          output: {
+            finalResponse:
+              "The workflow is export-ready; use the bundled artifacts as the final reviewed output.",
+            nextActions: ["export_bundle", "artifact-bundle-index.md"],
+          },
+          recommendations: ["export_bundle", "artifact-bundle-index.md"],
+        }),
+      ],
+    })
+    const runtime = createCloudSolutionRuntime(process.cwd(), {
+      worktree: process.cwd(),
+      client,
+    })
+
+    const result = await runtime.kernel.invokeTool({
+      toolName: "start_solution_review_workflow",
+      sessionID: "runtime-workflow-session",
+      args: createBundleRuntimeInput(),
+    })
+    const parsed = JSON.parse(result)
+
+    expect(createCalls).toHaveLength(2)
+    expect(promptCalls).toHaveLength(2)
+    expect(createCalls[0]).toEqual(
+      expect.objectContaining({
+        body: expect.objectContaining({
+          parentID: "runtime-workflow-session",
+          title: "Requirements Clarification",
+        }),
+      }),
+    )
+    expect(createCalls[1]).toEqual(
+      expect.objectContaining({
+        body: expect.objectContaining({
+          parentID: "runtime-workflow-session",
+          title: "Solution Review Assistant",
+        }),
+      }),
+    )
+    expect(parsed.orchestrationState).toBe("export_ready")
+    expect(parsed.workflowState).toBe("export_ready")
+    expect(parsed.transitions).toEqual(["queued", "running", "export_ready"])
+    expect(parsed.bundle.exportReady).toBe(true)
+    expect(parsed.nextAction).toBe("export_bundle")
+    expect(parsed.clarificationSummary).toEqual({
+      missingFields: [],
+      clarificationQuestions: [],
+      blockingQuestions: [],
+      nonBlockingQuestions: [],
+      suggestions: [],
+    })
+    expect(parsed.finalResponse).toContain("export-ready")
+    expect(Array.isArray(parsed.nextActions)).toBe(true)
+    expect(parsed.nextActions.length).toBeGreaterThan(0)
+    expect(parsed).not.toHaveProperty("warnings")
+    expect(parsed).not.toHaveProperty("agentBrief")
+    expect(parsed).not.toHaveProperty("agentResponse")
+  })
+
+  test("fails start_solution_review_workflow through the runtime kernel without a client", () => {
+    const runtime = createCloudSolutionRuntime(process.cwd())
+
+    return expect(
+      Promise.resolve().then(() =>
+        runtime.kernel.invokeTool({
+          toolName: "start_solution_review_workflow",
+          sessionID: "runtime-workflow-session",
+          args: createBundleRuntimeInput(),
+        }),
+      ),
+    ).rejects.toThrow(
+      "start_solution_review_workflow requires a plugin runtime client to spawn the internal clarification and review agents",
+    )
   })
 })

@@ -1,5 +1,6 @@
 import type { CloudSolutionConfig } from "../config"
 import type { Managers } from "../create-managers"
+import type { RuntimeContext } from "./types"
 import {
   createDescribeCloudSolutionTools,
   createExportArtifactBundleTools,
@@ -7,6 +8,7 @@ import {
   createGenerateDevicePortPlanTools,
   createGenerateIpAllocationTableTools,
   createGeneratePortConnectionTableTools,
+  createStartSolutionReviewWorkflowTools,
   createSummarizeDesignGapsTools,
   createValidateSolutionModelTools,
 } from "../tools"
@@ -17,8 +19,9 @@ import type { ToolsRecord } from "./types"
 export function createToolRegistry(args: {
   pluginConfig: CloudSolutionConfig
   managers: Managers
+  context?: RuntimeContext
 }): ToolsRecord {
-  const { pluginConfig, managers } = args
+  const { pluginConfig, managers, context } = args
 
   const allTools: ToolsRecord = {
     ...createDescribeCloudSolutionTools({
@@ -32,6 +35,10 @@ export function createToolRegistry(args: {
     ...createGenerateDevicePortPlanTools(),
     ...createGenerateIpAllocationTableTools(),
     ...createGeneratePortConnectionTableTools(),
+    ...createStartSolutionReviewWorkflowTools({
+      pluginConfig,
+      context,
+    }),
     ...createSummarizeDesignGapsTools(),
     ...createValidateSolutionModelTools(),
   }

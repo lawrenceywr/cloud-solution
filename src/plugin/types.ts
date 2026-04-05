@@ -4,8 +4,19 @@ type PluginInstance = Awaited<ReturnType<Plugin>>
 
 export type PluginContext = Parameters<Plugin>[0]
 
+export type CoordinatorSessionClient = Pick<
+  PluginContext["client"]["session"],
+  "create" | "prompt" | "abort"
+>
+
+export type CoordinatorClient = {
+  session: CoordinatorSessionClient
+}
+
 export type RuntimeContext = {
   directory: string
+  worktree?: string
+  client?: CoordinatorClient
 }
 
 export type MinimalPluginInterface = Pick<

@@ -135,6 +135,7 @@ describe("scenario acceptance", () => {
     })
 
     expect(bundle.exportReady).toBe(true)
+    expect(bundle.workflowState).toBe("export_ready")
     expect(bundle.reviewRequired).toBe(false)
     expect(bundle.validationSummary.valid).toBe(true)
     expect(bundle.includedArtifactNames).toEqual([

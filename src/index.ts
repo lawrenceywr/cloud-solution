@@ -5,9 +5,20 @@ import { createManagers } from "./create-managers"
 import { createTools } from "./create-tools"
 import { createHooks } from "./create-hooks"
 import { createPluginInterface, createPluginKernel } from "./plugin-interface"
+import type { CoordinatorClient } from "./plugin/types"
 
-export function createCloudSolutionRuntime(directory: string) {
-  const context = { directory }
+export function createCloudSolutionRuntime(
+  directory: string,
+  overrides?: {
+    worktree?: string
+    client?: CoordinatorClient
+  },
+) {
+  const context = {
+    directory,
+    worktree: overrides?.worktree ?? directory,
+    client: overrides?.client,
+  }
   const pluginConfig = loadPluginConfig(directory)
   const managers = createManagers({
     context,
@@ -16,6 +27,7 @@ export function createCloudSolutionRuntime(directory: string) {
   const tools = createTools({
     pluginConfig,
     managers,
+    context,
   })
   const hooks = createHooks({
     pluginConfig,
@@ -43,7 +55,10 @@ export function createCloudSolutionRuntime(directory: string) {
 }
 
 const CloudSolutionPlugin: Plugin = async (ctx) => {
-  return createCloudSolutionRuntime(ctx.directory).pluginInterface
+  return createCloudSolutionRuntime(ctx.directory, {
+    worktree: ctx.worktree,
+    client: ctx.client,
+  }).pluginInterface
 }
 
 export default CloudSolutionPlugin

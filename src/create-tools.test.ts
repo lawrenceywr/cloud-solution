@@ -4,6 +4,7 @@ import { createScn01SingleRackConnectivityFixture } from "./scenarios/fixtures"
 import { loadPluginConfig } from "./plugin-config"
 import { createManagers } from "./create-managers"
 import { createTools } from "./create-tools"
+import { createFakeCoordinatorClient } from "./test-helpers/fake-coordinator-client"
 import { createTestToolContext } from "./test-helpers/tool-context"
 
 function createPhysicalToolInput() {
@@ -499,6 +500,7 @@ describe("createTools", () => {
     )
     const parsed = JSON.parse(response)
 
+    expect(parsed.workflowState).toBe("review_required")
     expect(parsed.reviewRequired).toBe(true)
     expect(parsed.assumptionCount).toBe(1)
     expect(parsed.unresolvedItemCount).toBe(1)
@@ -527,6 +529,7 @@ describe("createTools", () => {
     )
     const parsed = JSON.parse(response)
 
+    expect(parsed.workflowState).toBe("export_ready")
     expect(parsed.exportReady).toBe(true)
     expect(parsed.reviewRequired).toBe(false)
     expect(parsed.requestedArtifactTypes).toEqual([
@@ -571,8 +574,126 @@ describe("createTools", () => {
     )
     const parsed = JSON.parse(response)
 
+    expect(parsed.workflowState).toBe("export_ready")
     expect(parsed.requestedArtifactTypes).toEqual(config.default_artifacts)
     expect(parsed.exportReady).toBe(true)
     expect(parsed.artifacts).toHaveLength(6)
+  })
+
+  test("registers start_solution_review_workflow and returns orchestration states", async () => {
+    const config = loadPluginConfig(process.cwd())
+    const { client, createCalls, promptCalls } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "requirements-clarification",
+          status: "success",
+          output: {
+            missingFields: [],
+            clarificationQuestions: [],
+            suggestions: [],
+          },
+          recommendations: ["输入完整，无需澄清"],
+        }),
+        JSON.stringify({
+          workerId: "solution-review-assistant",
+          status: "success",
+          output: {
+            finalResponse:
+              "The workflow is export-ready; use the bundled artifacts as the final reviewed output.",
+            nextActions: ["export_bundle", "artifact-bundle-index.md"],
+          },
+          recommendations: ["export_bundle", "artifact-bundle-index.md"],
+        }),
+      ],
+    })
+    const managers = createManagers({
+      context: {
+        directory: process.cwd(),
+        worktree: process.cwd(),
+        client,
+      },
+      pluginConfig: config,
+    })
+
+    const tools = createTools({
+      pluginConfig: config,
+      managers,
+      context: {
+        directory: process.cwd(),
+        worktree: process.cwd(),
+        client,
+      },
+    })
+
+    expect(Object.keys(tools)).toContain("start_solution_review_workflow")
+    expect(Object.keys(tools)).not.toContain("start_coordinator_workflow")
+
+    const response = await tools.start_solution_review_workflow.execute(
+      createBundleToolInput(),
+      createTestToolContext({ sessionID: "tool-test-session" }),
+    )
+    const parsed = JSON.parse(response)
+
+    expect(createCalls).toHaveLength(2)
+    expect(promptCalls).toHaveLength(2)
+    expect(createCalls[0]).toEqual(
+      expect.objectContaining({
+        body: expect.objectContaining({
+          parentID: "tool-test-session",
+          title: "Requirements Clarification",
+        }),
+      }),
+    )
+    expect(createCalls[1]).toEqual(
+      expect.objectContaining({
+        body: expect.objectContaining({
+          parentID: "tool-test-session",
+          title: "Solution Review Assistant",
+        }),
+      }),
+    )
+    expect(parsed.orchestrationState).toBe("export_ready")
+    expect(parsed.workflowState).toBe("export_ready")
+    expect(parsed.transitions).toEqual(["queued", "running", "export_ready"])
+    expect(parsed.nextAction).toBe("export_bundle")
+    expect(parsed.bundle.exportReady).toBe(true)
+    expect(parsed.clarificationSummary).toEqual({
+      missingFields: [],
+      clarificationQuestions: [],
+      blockingQuestions: [],
+      nonBlockingQuestions: [],
+      suggestions: [],
+    })
+    expect(parsed.finalResponse).toContain("export-ready")
+    expect(Array.isArray(parsed.nextActions)).toBe(true)
+    expect(parsed.nextActions.length).toBeGreaterThan(0)
+    expect(parsed).not.toHaveProperty("warnings")
+    expect(parsed).not.toHaveProperty("agentBrief")
+    expect(parsed).not.toHaveProperty("agentResponse")
+  })
+
+  test("fails start_solution_review_workflow when no runtime client is available", () => {
+    const config = loadPluginConfig(process.cwd())
+    const managers = createManagers({
+      context: { directory: process.cwd() },
+      pluginConfig: config,
+    })
+
+    const tools = createTools({
+      pluginConfig: config,
+      managers,
+      context: { directory: process.cwd() },
+    })
+
+    return expect(
+      Promise.resolve().then(() =>
+        tools.start_solution_review_workflow.execute(
+          createBundleToolInput(),
+          createTestToolContext({ sessionID: "tool-test-session" }),
+        ),
+      ),
+    ).rejects.toThrow(
+      "start_solution_review_workflow requires a plugin runtime client to spawn the internal clarification and review agents",
+    )
   })
 })
