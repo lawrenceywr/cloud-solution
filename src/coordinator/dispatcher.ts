@@ -18,6 +18,25 @@ type RunDispatcherArgs = {
   reviewSummary?: DesignGapSummary
 }
 
+function normalizeWorkerResult(args: {
+  worker: WorkerDefinition
+  result: WorkerResult
+}): WorkerResult {
+  const { worker, result } = args
+
+  if (result.workerId === worker.id) {
+    return result
+  }
+
+  return {
+    workerId: worker.id,
+    status: "failed",
+    output: {},
+    recommendations: [],
+    errors: [`Worker ${worker.id} returned unexpected workerId '${result.workerId}'`],
+  }
+}
+
 export async function runCoordinatorDispatcher(
   args: RunDispatcherArgs,
 ): Promise<CoordinatorResult> {
@@ -31,7 +50,7 @@ export async function runCoordinatorDispatcher(
   const orderedWorkers = resolveExecutionOrder(triggeredWorkers)
 
   const validationIssues = validateCloudSolutionModel({ ...args.input })
-  const workerInput: WorkerInput = {
+  let workerInput: WorkerInput = {
     requirement: args.input.requirement,
     devices: args.input.devices,
     racks: args.input.racks,
@@ -42,31 +61,48 @@ export async function runCoordinatorDispatcher(
     validationIssues,
     reviewSummary: args.reviewSummary,
     context: args.input.context,
+    workerMessages: {},
   }
 
   const workerResults: WorkerResult[] = []
+  const aggregatedOutput: Record<string, WorkerResult> = {}
+
   for (const worker of orderedWorkers) {
     try {
-      const result = await worker.execute(workerInput, args.runtime)
+      const result = normalizeWorkerResult({
+        worker,
+        result: await worker.execute(workerInput, args.runtime),
+      })
       workerResults.push(result)
+      aggregatedOutput[worker.id] = result
+      workerInput = {
+        ...workerInput,
+        workerMessages: {
+          ...aggregatedOutput,
+        },
+      }
     } catch (error) {
-      workerResults.push({
+      const failedResult: WorkerResult = {
         workerId: worker.id,
         status: 'failed',
         output: {},
         recommendations: [],
         errors: [error instanceof Error ? error.message : String(error)],
-      })
+      }
+
+      workerResults.push(failedResult)
+      aggregatedOutput[worker.id] = failedResult
+      workerInput = {
+        ...workerInput,
+        workerMessages: {
+          ...aggregatedOutput,
+        },
+      }
     }
   }
 
   const workersInvoked = orderedWorkers.map(w => w.id)
   const executionOrder = [...workersInvoked]
-  const aggregatedOutput: Record<string, WorkerResult> = {}
-
-  for (const result of workerResults) {
-    aggregatedOutput[result.workerId] = result
-  }
 
   const finalResponse = workerResults.map(result => {
     const workerOutput = JSON.stringify(result.output, null, 2)

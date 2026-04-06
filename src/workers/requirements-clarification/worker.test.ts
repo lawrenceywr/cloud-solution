@@ -18,6 +18,7 @@ function createWorkerInput(overrides?: Partial<WorkerInput>): WorkerInput {
     validationIssues: [],
     reviewSummary: undefined,
     context: {},
+    workerMessages: {},
     ...overrides,
   }
 }

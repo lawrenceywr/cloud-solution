@@ -3,6 +3,14 @@ import { z } from "zod"
 import { CloudSolutionSliceInputSchema, ValidationIssueSchema, DesignGapSummarySchema } from "../domain"
 import type { CoordinatorClient } from "../plugin/types"
 
+const WorkerMessageSchema = z.object({
+  workerId: z.string(),
+  status: z.enum(["success", "partial", "failed"]),
+  output: z.record(z.string(), z.unknown()),
+  recommendations: z.array(z.string()),
+  errors: z.array(z.string()).optional(),
+})
+
 export const CoordinatorInputSchema = CloudSolutionSliceInputSchema.extend({
   context: z.record(z.string(), z.unknown()).optional(),
 })
@@ -11,15 +19,10 @@ export const WorkerInputSchema = CloudSolutionSliceInputSchema.extend({
   validationIssues: z.array(ValidationIssueSchema),
   reviewSummary: DesignGapSummarySchema.optional(),
   context: z.record(z.string(), z.unknown()).optional(),
+  workerMessages: z.record(z.string(), WorkerMessageSchema).default({}),
 })
 
-export const WorkerResultSchema = z.object({
-  workerId: z.string(),
-  status: z.enum(["success", "partial", "failed"]),
-  output: z.record(z.string(), z.unknown()),
-  recommendations: z.array(z.string()),
-  errors: z.array(z.string()).optional(),
-})
+export const WorkerResultSchema = WorkerMessageSchema
 
 export const WorkerDefinitionSchema = z.object({
   id: z.string(),

@@ -223,4 +223,101 @@ describe("runCoordinatorDispatcher", () => {
       errors: ["Something went wrong in the worker"],
     })
   })
+
+  test("dispatcher passes prior worker results into downstream workerMessages", async () => {
+    const workers: WorkerDefinition[] = [
+      createClarificationWorker({
+        missingFields: [],
+        clarificationQuestions: [],
+        suggestions: [],
+        recommendation: "输入完整，无需澄清",
+      }),
+      {
+        id: "message-aware-worker",
+        name: "Message Aware Worker",
+        description: "Reads upstream worker messages before executing.",
+        triggerCondition: (_input: CoordinatorInput) => true,
+        priority: 200,
+        dependencies: ["requirements-clarification"],
+        execute: async (input) => ({
+          workerId: "message-aware-worker",
+          status: "success",
+          output: {
+            seenWorkerIds: Object.keys(input.workerMessages).sort(),
+            upstreamStatus: input.workerMessages["requirements-clarification"]?.status,
+          },
+          recommendations: [],
+        }),
+      },
+    ]
+
+    const result = await runCoordinatorDispatcher({
+      input: createCompleteCoordinatorInput(),
+      workers,
+      runtime: createRuntime(),
+    })
+
+    expect(result.executionOrder).toEqual([
+      "requirements-clarification",
+      "message-aware-worker",
+    ])
+    expect(result.aggregatedOutput["message-aware-worker"].output).toEqual({
+      seenWorkerIds: ["requirements-clarification"],
+      upstreamStatus: "success",
+    })
+  })
+
+  test("dispatcher normalizes a mismatched returned workerId into a failed dependency-safe result", async () => {
+    const workers: WorkerDefinition[] = [
+      {
+        id: "requirements-clarification",
+        name: "Requirements Clarification",
+        description: "Returns the wrong worker id.",
+        triggerCondition: (_input: CoordinatorInput) => true,
+        priority: 100,
+        dependencies: [],
+        execute: async () => ({
+          workerId: "different-worker-id",
+          status: "success",
+          output: { foo: "bar" },
+          recommendations: ["bad-output"],
+        }),
+      },
+      {
+        id: "message-aware-worker",
+        name: "Message Aware Worker",
+        description: "Reads upstream worker messages before executing.",
+        triggerCondition: (_input: CoordinatorInput) => true,
+        priority: 200,
+        dependencies: ["requirements-clarification"],
+        execute: async (input) => ({
+          workerId: "message-aware-worker",
+          status: "success",
+          output: {
+            upstreamStatus: input.workerMessages["requirements-clarification"]?.status,
+            upstreamErrors: input.workerMessages["requirements-clarification"]?.errors ?? [],
+          },
+          recommendations: [],
+        }),
+      },
+    ]
+
+    const result = await runCoordinatorDispatcher({
+      input: createCompleteCoordinatorInput(),
+      workers,
+      runtime: createRuntime(),
+    })
+
+    expect(result.aggregatedOutput["requirements-clarification"]).toEqual({
+      workerId: "requirements-clarification",
+      status: "failed",
+      output: {},
+      recommendations: [],
+      errors: ["Worker requirements-clarification returned unexpected workerId 'different-worker-id'"],
+    })
+    expect(result.aggregatedOutput["message-aware-worker"].output).toEqual({
+      upstreamStatus: "failed",
+      upstreamErrors: ["Worker requirements-clarification returned unexpected workerId 'different-worker-id'"],
+    })
+  })
 })

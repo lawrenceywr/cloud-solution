@@ -60,10 +60,17 @@ function hasInsufficientLinksForRedundancyIntent(
   )
 }
 
+function requiresDeviceInventory(input: CloudSolutionSliceInput): boolean {
+  return input.requirement.scopeType !== "cloud"
+    || input.allocations.some((allocation) => typeof allocation.deviceId === "string")
+    || input.ports.length > 0
+    || input.links.length > 0
+}
+
 export const QUESTION_TEMPLATES: QuestionTemplate[] = [
   {
     id: "devices-missing",
-    trigger: (input) => input.devices.length === 0,
+    trigger: (input) => requiresDeviceInventory(input) && input.devices.length === 0,
     field: "devices",
     question: "请提供设备清单，包括设备名称、角色、厂商、型号",
     severity: "blocking",
