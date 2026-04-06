@@ -1,86 +1,84 @@
 # Next Stage Plan
 
-Status: superseded by MVP-complete branch state.
+Status: completed.
 
-This document defined the first physical planning stage that followed the IP trust-center path and the early `port-connection-table` slice. That stage remains complete, and later work on the branch also added scenario acceptance coverage, normalization, redundancy validation, and confirmed-only artifact gating needed for MVP completion.
+This post-MVP slice is now complete: `SCN-04`, the front-door intake tools, and explicit multi-worker review orchestration have all landed. The next remaining post-MVP work needs a fresh plan around `SCN-05` candidate-fact extraction and later MCP / external integrations.
 
 ## Scope
 
 In scope:
 
-- add explicit rack records and placement fields to the canonical slice input
-- validate rack references, placement overlap, and rack-height boundaries
-- add deterministic `device-cabling-table` artifact generation
-- add deterministic `device-port-plan` artifact generation
-- wire both physical artifacts into tool registration and runtime tests
-- update progress tracking docs after the slice lands
+- land `SCN-04` fixture, validation depth, artifact assertions, and scenario acceptance
+- add `capture_solution_requirements` and `draft_topology_model` as the first front-door intake tools
+- route the review workflow through explicit dependency-ordered multi-worker orchestration
+- update planning/progress docs after those slices land
 
 Out of scope:
 
-- normalization and structured input shaping
-- `SCN-02` redundancy logic
-- `SCN-03` multi-rack logic
 - multimodal extraction
-- review workflows
-- background orchestration
 - vendor-specific logic packs
 
 ## File Map
 
 ### Planning docs
 
+- `README.md`
 - `docs/backlog.md`
 - `docs/plans/next-stage.md`
 - `docs/plans/next-stage-testing.md`
 
-### Domain and validation
+### Scenario, intake, and orchestration coverage
 
-- `src/domain/schema/cloud-domain-schema.ts`
-- `src/tools/solution-slice-tool-args.ts`
+- `docs/scenarios.md`
+- `src/scenarios/fixtures.ts`
 - `src/validators/validate-cloud-solution-model.ts`
+- `src/tools/capture-solution-requirements/tools.ts`
+- `src/tools/draft-topology-model/tools.ts`
+- `src/tools/validate-solution-model/tools.ts`
+- `src/tools/generate-ip-allocation-table/tools.ts`
 
-### Artifacts and tools
+### Artifact / acceptance surfaces
 
-- `src/artifacts/device-cabling-table/build-device-cabling-table.ts`
-- `src/artifacts/device-port-plan/build-device-port-plan.ts`
-- `src/artifacts/index.ts`
-- `src/tools/generate-device-cabling-table/tools.ts`
-- `src/tools/generate-device-port-plan/tools.ts`
-- `src/tools/index.ts`
-- `src/plugin/tool-registry.ts`
+- `src/artifacts/ip-allocation-table/build-ip-allocation-table.ts`
+- `src/tools/export-artifact-bundle/tools.ts`
+- `src/coordinator/dispatcher.ts`
+- `src/workers/solution-review-assistant/worker.ts`
+- `src/scenarios/scenario-acceptance.test.ts`
+- `src/scenarios/scenario-bundle-snapshots.test.ts`
 
 ### Tests
 
-- `src/domain/schema/cloud-domain-schema.test.ts`
 - `src/validators/validate-cloud-solution-model.test.ts`
-- `src/artifacts/device-cabling-table/build-device-cabling-table.test.ts`
-- `src/artifacts/device-port-plan/build-device-port-plan.test.ts`
+- `src/artifacts/ip-allocation-table/build-ip-allocation-table.test.ts`
 - `src/create-tools.test.ts`
 - `src/index.test.ts`
+- `src/coordinator/dispatcher.test.ts`
+- `src/features/solution-review-agent-handoff.test.ts`
+- `src/scenarios/scenario-acceptance.test.ts`
+- `src/scenarios/scenario-bundle-snapshots.test.ts`
 
 ## Execution Order
 
-1. land physical schema and row contracts
-2. land rack validation rules
-3. land `device-cabling-table`
-4. land `device-port-plan`
-5. wire generation tools into the runtime
-6. update progress docs
-7. run full verification
+1. land `SCN-04` fixture and cloud validation depth
+2. add front-door requirement capture and draft-topology intake tools
+3. expand the review path into explicit multi-worker orchestration
+4. run targeted verification and then full verification
 
 ## Progress
 
-- [x] rack entities and placement fields added to the canonical slice input
-- [x] deterministic rack validation added for missing racks, overlaps, and rack-height overflow
-- [x] `device-cabling-table` artifact + tests landed
-- [x] `device-port-plan` artifact + tests landed
-- [x] runtime tool registration and invocation tests landed
-- [x] progress docs updated to hand off the next queued work
+- [x] current progress and next-step assessment captured in planning docs
+- [x] public handoff contract aligned across features/tools/tests
+- [x] backward-compatible result fields verified for current callers
+- [x] `SCN-04` fixture and acceptance coverage landed
+- [x] cloud-oriented validation / IP allocation gaps closed where needed
+- [x] front-door intake tools landed
+- [x] dependency-ordered multi-worker review orchestration landed
+- [x] progress docs updated after the slice landed
 
 ## Acceptance for This Stage
 
-- rack data is explicit in the canonical slice input
-- physical placement issues use the shared validation contract
-- `device-cabling-table` and `device-port-plan` rows are built from validated model data only
-- both physical generation tools are registered and invokable end to end
-- typecheck, tests, and build pass
+- `SCN-04` exists as executable fixture-driven coverage
+- the cloud-oriented path passes validation and IP allocation generation end to end
+- `capture_solution_requirements` and `draft_topology_model` provide a front-door intake path without weakening confirmed-only artifact gating
+- the review workflow exposes deterministic worker ordering while preserving the stable public handoff contract
+- targeted tests, full tests, typecheck, and build pass

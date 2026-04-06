@@ -49,6 +49,7 @@ MVP 采用 human-in-the-loop 模式。
 - `docs/roadmap.md` —— 从 MVP 到后续扩展的分阶段交付计划
 - `docs/scenarios.md` —— 应驱动测试与 fixture 的规范场景
 - `docs/backlog.md` —— 从 roadmap 阶段与场景覆盖中拆解出的可执行 backlog
+- `docs/plans/local-development-workflow.md` —— 本地编辑、重建、重启与 reload 检查流程
 - `docs/plans/next-stage.md` —— 当前阶段执行计划与按文件划分的范围
 - `docs/plans/next-stage-testing.md` —— 当前阶段的 TDD 与验证计划
 
@@ -103,6 +104,18 @@ src/
 - 面向结构化物理/网络输入的首版归一化层，用于生成规范模型
 - 用于阻止薄弱物理与 IP 事实驱动最终产物的确认门控
 - 一个确定性的 `summarize_design_gaps` 评审工具和假设报告渲染器
+- 一个确定性的 `export_artifact_bundle` 工作流，用于打包请求产物、评审输出和 bundle index
+- `SCN-01` 到 `SCN-03` 的 bundle 回归基线
+- 面向 SCN-02 双归属与 SCN-03 多机柜语义的更深一层确定性校验
+- `src/features/` 中一个轻量确定性的 `solution-review-workflow` 协调器
+- 基于该协调器的首个 `start_solution_review_workflow` 编排启动器
+- `src/workers/` 中首个 `requirements-clarification` 子 worker
+- `src/agents/` 中首个确定性的 `solution_review_assistant` brief 与实际响应模块
+- `src/coordinator/` 中可复用的 child-session / worker 协调基础设施
+- 已经收敛的 review-workflow 公共 handoff 结果：公开 `agentBrief` / `agentResponse`，同时保留 `finalResponse` / `nextActions` 兼容字段
+- `SCN-04` 的可执行 cloud-allocation fixture / validation / artifact / acceptance 覆盖
+- 首个前门输入工具：`capture_solution_requirements` 与 `draft_topology_model`
+- 基于现有 coordinator 的显式多 worker review orchestration，以及 worker 间消息传递
 
 当前实现覆盖了：
 
@@ -110,21 +123,40 @@ src/
 2. 显式的 IP 分配建模与产物生成
 3. 显式的端口连接建模与产物生成
 4. 面向 `SCN-01` 的机柜感知物理规划，包括设备布线表与设备端口规划表
-5. 覆盖 `SCN-01` 到 `SCN-03` 的规范场景验收
+5. 覆盖 `SCN-01` 到 `SCN-04` 的规范场景验收
 6. 在校验/工具执行前完成结构化输入归一化
 7. 基于已验证模型状态生成可直接评审的假设/缺口报告
+8. 在已验证/已评审输出之上完成 artifact bundle 打包
+9. 锁定 `SCN-01` 到 `SCN-03` 的 bundle 回归基线
+10. 在 agent 工作之前增强 `SCN-02` / `SCN-03` 的确定性规则深度
+11. 在 agent 层之前加入共享的 review/export workflow state 协调器
+12. 加入 queued→running→terminal 的 workflow launcher
+13. 加入面向 agent 的 handoff brief
+14. 加入首个实际 review assistant 与对外收敛后的 handoff contract
+15. 把 `SCN-04` 落成云侧 IP allocation 的验收锚点
+16. 加入前门 requirement capture 与 draft topology intake 工具
+17. 把 review path 扩成显式的 dependency-ordered multi-worker orchestration
 
 当前框架成熟度为：
 
 1. 插件启动流程、runtime kernel、tool registry 以及一个执行前 readiness guard 已实现
-2. 基于 tool 的校验、产物生成与评审摘要流程已经端到端打通
-3. agent 编排、agent 间通信以及后台 workflow 模块尚未实现（`src/agents/` 与 `src/features/` 仍为空）
+2. 基于 tool 的校验、产物生成、评审摘要、workflow launcher、`SCN-04` 验收、requirement capture 与 draft-topology intake 已端到端打通
+3. review workflow 已经跑在显式多 worker orchestration 上，但更广义的多模态 candidate-fact 与外部集成仍未展开
+
+## 当前 Agent / Orchestration 状态
+
+当前首个 review workflow 里已经存在 4 个实际运行角色：
+
+1. `start_solution_review_workflow` + `src/features/solution-review-agent-handoff.ts` 组成外层 orchestrator。
+2. `src/workers/requirements-clarification/worker.ts` 负责澄清问题子 worker。
+3. `src/workers/solution-review-assistant/worker.ts` 负责依赖有序的 review-assistant worker。
+4. `src/agents/solution-review-assistant.ts` 负责 review assistant 子 agent。
+
+这意味着仓库已经有显式的多 worker review path，但严格按 `src/agents/` 目录来算，目前仍只有 1 个正式 agent 模块；更广义的多模态 candidate-fact 路径和外部集成仍未实现。
 
 当前分支已经满足 roadmap 中对 MVP 的完成标准。
 
-下一阶段的开发重点是 post-MVP：
+下一阶段剩余的 post-MVP 开发重点是：
 
-1. 在评审输出之上继续构建 artifact bundle / export workflow
-2. 为规范场景增加更丰富的 snapshot 维护
-3. 在导出/评审基础更扎实之后，再推进 agent / 后台 workflow orchestration
-4. 在不削弱信任边界的前提下，增加可选的多模态草稿能力和后续集成
+1. 落地 `SCN-05` / 多模态 candidate-fact extraction，同时不削弱 trust boundary
+2. 仅在 candidate-fact 路径稳定后，再增加 MCP / 外部系统集成

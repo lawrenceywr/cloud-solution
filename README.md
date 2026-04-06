@@ -49,6 +49,7 @@ requirements / inventory / topology / rack docs
 - `docs/roadmap.md` — phased delivery plan from MVP to later expansion
 - `docs/scenarios.md` — canonical scenarios that should drive tests and fixtures
 - `docs/backlog.md` — actionable backlog derived from roadmap phases and scenario coverage
+- `docs/plans/local-development-workflow.md` — local edit, rebuild, restart, and reload-check workflow for this plugin
 - `docs/plans/next-stage.md` — current-stage execution plan and file-by-file scope
 - `docs/plans/next-stage-testing.md` — current-stage TDD and verification plan
 
@@ -74,7 +75,7 @@ cloud-solution/
     └── scenarios.md
 ```
 
-Code will be added later, but the intended source layout is expected to follow this shape:
+The source layout currently follows this shape:
 
 ```text
 src/
@@ -108,8 +109,14 @@ This directory now contains:
 - deeper deterministic validation for SCN-02 dual-homing and SCN-03 multi-rack semantics
 - a thin deterministic `solution-review-workflow` coordinator in `src/features/`
 - a first `start_solution_review_workflow` orchestration launcher over that coordinator
+- a first `requirements-clarification` child worker in `src/workers/`
 - a first deterministic `solution_review_assistant` brief in `src/agents/`
 - a first actual `solution_review_assistant` response module built on that brief
+- a reusable coordinator / child-session substrate in `src/coordinator/` for later multi-agent expansion
+- a converged public review-workflow handoff that now exposes `agentBrief` / `agentResponse` while keeping `finalResponse` / `nextActions` for backward compatibility
+- executable `SCN-04` cloud-allocation coverage in fixtures, validation, artifact generation, and scenario acceptance
+- first front-door intake tools for `capture_solution_requirements` and `draft_topology_model`
+- explicit multi-worker review orchestration with dependency-ordered worker execution and worker-to-worker message passing
 
 The current implementation covers:
 
@@ -117,7 +124,7 @@ The current implementation covers:
 2. explicit IP allocation modeling and artifact generation
 3. explicit port connection modeling and artifact generation
 4. rack-aware `SCN-01` physical planning via device cabling and device port plan artifacts
-5. canonical scenario acceptance for `SCN-01` to `SCN-03`
+5. canonical scenario acceptance for `SCN-01` to `SCN-04`
 6. structured-input normalization before validation/tool execution
 7. review-ready assumptions/gaps reporting from validated model state
 8. export-ready artifact bundle packaging on top of validated/reviewed outputs
@@ -127,16 +134,30 @@ The current implementation covers:
 12. a tracked queued→running→terminal workflow launcher before any agent layer exists
 13. a deterministic agent-facing handoff brief for review/export follow-up
 14. a first actual review assistant that turns handoff state into deterministic agent output
+15. a cloud-oriented `SCN-04` acceptance anchor for IP allocation planning
+16. front-door requirement capture and draft-topology intake tools
+17. explicit dependency-ordered multi-worker orchestration on the review path
 
 The current framework maturity is:
 
 1. plugin boot flow, runtime kernel, tool registry, and one pre-execution readiness guard are implemented
-2. tool-driven validation, artifact generation, review summary, a feature-level coordinator, a workflow launcher, an agent handoff brief, and a first actual review assistant are implemented end to end
-3. inter-agent communication and broader agent orchestration are not implemented yet
+2. tool-driven validation, artifact generation, review summary, workflow launch, `SCN-04` acceptance, requirement capture, and draft-topology intake are implemented end to end
+3. the review workflow now runs through explicit multi-worker orchestration on the existing coordinator substrate, while broader multimodal/external integrations remain out of scope
+
+## Current Agent / Orchestration Status
+
+The branch now has four concrete runtime roles in the first review workflow:
+
+1. `start_solution_review_workflow` + `src/features/solution-review-agent-handoff.ts` act as the orchestrator layer.
+2. `src/workers/requirements-clarification/worker.ts` runs the clarification child worker.
+3. `src/workers/solution-review-assistant/worker.ts` runs the dependency-ordered review-assistant worker.
+4. `src/agents/solution-review-assistant.ts` runs the review-assistant child agent.
+
+That means the codebase now has an explicit multi-worker review path, but still only one formal `src/agents/` agent module today. The broader multimodal candidate-fact path and external integration layer are still not implemented.
 
 The roadmap MVP done criteria are now satisfied on this branch.
 
-The next development focus is post-MVP:
+The next development focus is now the remaining post-MVP work:
 
-1. inter-agent communication and richer agent-layer orchestration on top of the new workflow launcher and first review assistant
-2. optional multimodal drafting and later integrations without weakening the trust boundary
+1. land `SCN-05` / multimodal candidate-fact extraction without weakening the trust boundary
+2. add MCP / external-system integrations only after the candidate-fact path is stable

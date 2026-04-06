@@ -109,7 +109,7 @@ A small cloud-oriented planning case focused on address segmentation rather than
 ### Expected Outputs
 
 - IP allocation table
-- segment summary
+- design-gap / unresolved-question output when subnet boundaries are unclear
 - unresolved questions if subnet boundaries are unclear
 
 ### Expected Validation Behavior
@@ -167,5 +167,5 @@ These scenarios should be treated as the source of truth for early tests and sna
 ## Scenario Traceability Notes
 
 - `SCN-01` to `SCN-03` mainly drive later physical connectivity slices.
-- `SCN-04` is the current trust-center execution anchor for the IP allocation path.
+- `SCN-04` is the current cloud-oriented acceptance anchor for the IP allocation path.
 - `SCN-05` remains out of scope for the current deterministic implementation stage.

@@ -240,9 +240,9 @@ Suggested responsibilities:
 - `agents/` — optional planning/review assistants
 - `mcp/` — optional external systems later
 
-### 6.1 Suggested First Tool Modules
+### 6.1 Current Core Tool Modules and Near-Term Additions
 
-The first user-facing tools should be narrow and model-driven:
+The user-facing tools remain narrow and model-driven. Current and near-term tool modules include:
 
 - `capture-solution-requirements`
 - `draft-topology-model`
@@ -264,7 +264,7 @@ These tools should return validated structures first, and user-friendly tables s
 
 These hooks should prevent the system from treating draft inference as final truth.
 
-### 6.3 Suggested First Feature Modules
+### 6.3 Current Feature Modules and Near-Term Additions
 
 - `solution-review-workflow`
 - `artifact-bundle-builder`
@@ -282,12 +282,10 @@ These are workflow helpers, not substitutes for validation logic.
 
 Renderers must remain pure and consume row schemas only.
 
-### 6.5 Optional Later Agent/Skill Modules
+### 6.5 Later Agent/Skill Modules
 
-These should be added only after the core model is stable:
+The clarification/review path is already landed through the current requirements-clarification worker, review-assistant worker, and solution-review assistant child agent. Additional agent/skill modules should still wait until the core model is stable:
 
-- requirements clarification assistant
-- solution review assistant
 - artifact explanation assistant
 - document-assisted extraction helper
 

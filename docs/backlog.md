@@ -32,17 +32,23 @@ Completed in this stage:
 15. add a first `start_solution_review_workflow` orchestration launcher on top of the deterministic coordinator
 16. add the first deterministic `src/agents/` handoff brief for solution review follow-up
 17. add the first actual `solution_review_assistant` agent response on top of the handoff brief
+18. add a first `requirements-clarification` child worker plus reusable coordinator/subsession plumbing for the review workflow
+19. align the first review-workflow public contract so launcher output, docs, and tests agree on `agentBrief` / `agentResponse`
+20. land `SCN-04` as the cloud allocation acceptance anchor with validator and artifact coverage
+21. add front-door requirement capture and draft-topology intake tools without weakening confirmed-only artifact gating
+22. expand the review path into explicit dependency-ordered multi-worker orchestration
 
 Framework status right now:
 
 1. the plugin boot flow, runtime kernel, tool registry, and basic readiness guard are implemented
 2. deterministic model/artifact/review tools plus a first workflow launcher are implemented and verified end to end
-3. `src/features/` now contains deterministic review/export coordination and one orchestration launcher, and `src/agents/` now contains a first actual review assistant, but no inter-agent communication or multi-agent orchestration exists yet
+3. `src/features/` now contains deterministic review/export coordination and one orchestration launcher, `src/workers/` now contains explicit clarification and review-assistant workers, and `src/agents/` now contains a first actual review assistant
+4. `src/coordinator/` now provides child-session execution, dependency-ordered worker dispatch, and explicit worker-to-worker message passing for the live review workflow
 
 Active next focus:
 
-1. inter-agent communication and richer agent-layer orchestration on top of the new workflow launcher and first review assistant
-2. post-MVP extensions such as multimodal drafting and external integrations
+1. define the next post-MVP slice around `SCN-05` candidate-fact extraction
+2. defer MCP / external integrations until the candidate-fact path is stable
 
 ## Progress Table
 
@@ -66,6 +72,10 @@ Active next focus:
 | BL-016 | completed | `start_solution_review_workflow` now launches a tracked queued→running→terminal orchestration flow before any agent layer exists. |
 | BL-017 | completed | `solution_review_assistant` handoff briefs now package workflow results into a deterministic agent-facing contract. |
 | BL-018 | completed | `solution_review_assistant` now produces deterministic response/checklist output from workflow handoff state. |
+| BL-019 | completed | `start_solution_review_workflow` now exposes stable workflow + agent handoff fields while preserving `finalResponse` and the legacy merged `nextActions` field for compatibility. |
+| BL-020 | completed | `SCN-04` now has fixture coverage, cloud validation depth, and acceptance coverage through validation/artifact/export surfaces. |
+| BL-021 | completed | `capture_solution_requirements` and `draft_topology_model` now provide the first front-door intake layer without weakening confirmed-only artifact gating. |
+| BL-022 | completed | The review workflow now runs through explicit multi-worker orchestration with dependency ordering and worker-to-worker message passing. |
 
 ## Ordered Backlog
 
@@ -251,6 +261,46 @@ Active next focus:
   - the assistant returns deterministic response/checklist output for blocked, review-required, export-ready, and failed states
   - `start_solution_review_workflow` returns both `agentBrief` and `agentResponse`
   - no inter-agent communication or multi-agent orchestration is introduced yet
+
+### BL-019 - Align the first orchestration contract [completed]
+
+- **Goal**: converge the launcher, handoff, tests, and docs on one stable public result shape for the first review workflow
+- **Depends on**: `BL-016`, `BL-017`, `BL-018`
+- **Acceptance**:
+  - `start_solution_review_workflow` exposes workflow state, clarification summary, `agentBrief`, and `agentResponse` in one public payload
+  - existing `finalResponse` and `nextActions` stay available as backward-compatible fields during the transition
+  - `finalResponse` mirrors `agentResponse.response`, while `nextActions` preserves the legacy merged action list
+  - docs and tests stop disagreeing about whether `agentBrief` / `agentResponse` exist
+  - failure and fallback paths preserve the same public contract
+
+### BL-020 - Land `SCN-04` as the cloud post-MVP anchor [completed]
+
+- **Goal**: add the missing cloud-oriented acceptance slice that the docs already describe
+- **Depends on**: `BL-019`
+- **Source docs**: `docs/scenarios.md`, `docs/domain-model.md`
+- **Acceptance**:
+  - `SCN-04` has fixture coverage
+  - `SCN-04` passes through validation and IP allocation artifact generation end to end
+  - acceptance tests prove the cloud-oriented path independently of the physical rack scenarios
+
+### BL-021 - Add front-door requirement capture tooling [completed]
+
+- **Goal**: introduce the first user-facing intake layer before any draft-topology or multimodal slice
+- **Depends on**: `BL-020`
+- **Source docs**: `docs/architecture.md`, `docs/roadmap.md`
+- **Acceptance**:
+  - a requirements-capture tool is registered and invokable end to end
+  - the tool produces normalized candidate input without weakening the confirmed-only trust boundary
+  - follow-up workflow/tool paths can consume the captured structure deterministically
+
+### BL-022 - Expand multi-worker orchestration [completed]
+
+- **Goal**: grow the current review workflow substrate into explicit multi-worker orchestration with visible worker dependencies
+- **Depends on**: `BL-019`, `BL-020`, `BL-021`
+- **Acceptance**:
+  - at least one additional worker joins the current clarification + review path
+  - worker dependency ordering is covered by tests
+  - public workflow output remains deterministic while surfacing richer orchestration state
 
 ## Not Scheduled Yet
 
