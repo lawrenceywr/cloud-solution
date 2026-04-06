@@ -154,6 +154,50 @@ function createBundleRuntimeInput() {
   return createScn01SingleRackConnectivityFixture()
 }
 
+function createCaptureRequirementsRuntimeInput() {
+  return {
+    projectName: "Runtime Captured Requirement",
+    scopeType: "cloud" as const,
+    artifactRequests: ["ip-allocation-table"],
+    requirementNotes: "Collect a cloud allocation draft from candidate facts.",
+  }
+}
+
+function createDraftTopologyRuntimeInput() {
+  return {
+    requirement: {
+      id: "req-runtime-draft-1",
+      projectName: "Runtime Draft Example",
+      scopeType: "cloud" as const,
+      artifactRequests: ["ip-allocation-table"],
+    },
+    structuredInput: {
+      racks: [],
+      devices: [],
+      links: [],
+      segments: [
+        {
+          name: "Runtime Service",
+          segmentType: "service" as const,
+          cidr: "10.80.0.0/24",
+          gateway: "10.80.0.1",
+          purpose: "runtime-service",
+        },
+      ],
+      allocations: [
+        {
+          segmentName: "Runtime Service",
+          allocationType: "service" as const,
+          ipAddress: "10.80.0.10",
+          hostname: "runtime-service-api",
+          interfaceName: "eni-runtime",
+          purpose: "runtime-service-api",
+        },
+      ],
+    },
+  }
+}
+
 describe("createCloudSolutionRuntime", () => {
   test("assembles the thin plugin flow and invokes the scaffold tool", async () => {
     const runtime = createCloudSolutionRuntime(process.cwd())
@@ -181,6 +225,80 @@ describe("createCloudSolutionRuntime", () => {
         sessionID: "runtime-coordinator-session",
       }),
     ).rejects.toThrow("Unknown tool: start_coordinator_workflow")
+  })
+
+  test("invokes capture_solution_requirements through the runtime kernel", async () => {
+    const runtime = createCloudSolutionRuntime(process.cwd())
+
+    const result = await runtime.kernel.invokeTool({
+      toolName: "capture_solution_requirements",
+      sessionID: "runtime-capture-session",
+      args: createCaptureRequirementsRuntimeInput(),
+    })
+    const parsed = JSON.parse(result)
+
+    expect(parsed.requirement.id).toBe("req-runtime-captured-requirement")
+    expect(parsed.requirement.artifactRequests).toEqual(["ip-allocation-table"])
+    expect(parsed.nextAction).toBe("draft_topology_model")
+    expect(parsed.draftInput.requirement).toEqual(parsed.requirement)
+  })
+
+  test("invokes draft_topology_model through the runtime kernel", async () => {
+    const runtime = createCloudSolutionRuntime(process.cwd())
+
+    const result = await runtime.kernel.invokeTool({
+      toolName: "draft_topology_model",
+      sessionID: "runtime-draft-session",
+      args: createDraftTopologyRuntimeInput(),
+    })
+    const parsed = JSON.parse(result)
+
+    expect(parsed.normalizedInput.requirement.id).toBe("req-runtime-draft-1")
+    expect(parsed.normalizedInput.segments[0]).toEqual(
+      expect.objectContaining({
+        id: "segment-runtime-service",
+        statusConfidence: "inferred",
+      }),
+    )
+    expect(parsed.validationSummary.valid).toBe(false)
+    expect(parsed.validationSummary.issues.map((issue: { code: string }) => issue.code)).toContain(
+      "network_fact_not_confirmed",
+    )
+  })
+
+  test("rejects confirmed candidate facts through draft_topology_model at runtime", async () => {
+    const runtime = createCloudSolutionRuntime(process.cwd())
+
+    await expect(
+      runtime.kernel.invokeTool({
+        toolName: "draft_topology_model",
+        sessionID: "runtime-draft-confirmed-session",
+        args: {
+          requirement: {
+            id: "req-runtime-draft-confirmed",
+            projectName: "Runtime Draft Confirmed",
+            scopeType: "cloud",
+            artifactRequests: ["ip-allocation-table"],
+          },
+          structuredInput: {
+            racks: [],
+            devices: [],
+            links: [],
+            segments: [
+              {
+                name: "Runtime Service",
+                segmentType: "service",
+                cidr: "10.81.0.0/24",
+                gateway: "10.81.0.1",
+                purpose: "runtime-service",
+                statusConfidence: "confirmed",
+              },
+            ],
+            allocations: [],
+          },
+        },
+      }),
+    ).rejects.toThrow()
   })
 
   test("invokes the validation slice through the runtime kernel", async () => {
@@ -522,6 +640,14 @@ describe("createCloudSolutionRuntime", () => {
 
     expect(createCalls).toHaveLength(2)
     expect(promptCalls).toHaveLength(2)
+    expect(parsed.workersInvoked).toEqual([
+      "requirements-clarification",
+      "solution-review-assistant",
+    ])
+    expect(parsed.executionOrder).toEqual([
+      "requirements-clarification",
+      "solution-review-assistant",
+    ])
     expect(createCalls[0]).toEqual(
       expect.objectContaining({
         body: expect.objectContaining({
@@ -550,12 +676,99 @@ describe("createCloudSolutionRuntime", () => {
       nonBlockingQuestions: [],
       suggestions: [],
     })
+    expect(parsed.agentBrief.agentID).toBe("solution_review_assistant")
+    expect(parsed.agentBrief.orchestrationState).toBe("export_ready")
+    expect(parsed.agentResponse.agentID).toBe("solution_review_assistant")
+    expect(parsed.agentResponse.orchestrationState).toBe("export_ready")
+    expect(parsed.agentResponse.nextAction).toBe("export_bundle")
     expect(parsed.finalResponse).toContain("export-ready")
+    expect(parsed.finalResponse).toBe(parsed.agentResponse.response)
     expect(Array.isArray(parsed.nextActions)).toBe(true)
     expect(parsed.nextActions.length).toBeGreaterThan(0)
     expect(parsed).not.toHaveProperty("warnings")
-    expect(parsed).not.toHaveProperty("agentBrief")
-    expect(parsed).not.toHaveProperty("agentResponse")
+  })
+
+  test("keeps SCN-04 export-ready through start_solution_review_workflow at runtime", async () => {
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "requirements-clarification",
+          status: "success",
+          output: {
+            missingFields: [],
+            clarificationQuestions: [],
+            suggestions: [],
+          },
+          recommendations: ["输入完整，无需澄清"],
+        }),
+        JSON.stringify({
+          workerId: "solution-review-assistant",
+          status: "success",
+          output: {
+            finalResponse:
+              "The workflow is export-ready; use the bundled artifacts as the final reviewed output.",
+            nextActions: ["export_bundle", "artifact-bundle-index.md"],
+          },
+          recommendations: ["export_bundle", "artifact-bundle-index.md"],
+        }),
+      ],
+    })
+    const runtime = createCloudSolutionRuntime(process.cwd(), {
+      worktree: process.cwd(),
+      client,
+    })
+
+    const result = await runtime.kernel.invokeTool({
+      toolName: "start_solution_review_workflow",
+      sessionID: "runtime-scn04-workflow-session",
+      args: {
+        requirement: {
+          id: "req-scn-04",
+          projectName: "SCN-04 Simple Cloud Network Allocation",
+          scopeType: "cloud",
+          artifactRequests: ["ip-allocation-table"],
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+        devices: [],
+        racks: [],
+        ports: [],
+        links: [],
+        segments: [
+          {
+            id: "segment-public-service",
+            name: "public-service",
+            segmentType: "service",
+            cidr: "10.40.0.0/24",
+            gateway: "10.40.0.1",
+            purpose: "public-service",
+            sourceRefs: [],
+            statusConfidence: "confirmed",
+          },
+        ],
+        allocations: [
+          {
+            id: "allocation-public-gateway",
+            segmentId: "segment-public-service",
+            allocationType: "gateway",
+            ipAddress: "10.40.0.1",
+            purpose: "public-gateway",
+            sourceRefs: [],
+            statusConfidence: "confirmed",
+          },
+        ],
+      },
+    })
+    const parsed = JSON.parse(result)
+
+    expect(parsed.orchestrationState).toBe("export_ready")
+    expect(parsed.clarificationSummary).toEqual({
+      missingFields: [],
+      clarificationQuestions: [],
+      blockingQuestions: [],
+      nonBlockingQuestions: [],
+      suggestions: [],
+    })
   })
 
   test("fails start_solution_review_workflow through the runtime kernel without a client", () => {

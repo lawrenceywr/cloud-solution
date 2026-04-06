@@ -1,8 +1,19 @@
+import { z } from "zod"
+
 import type { CloudSolutionConfig } from "../config"
-import type { WorkerInput, WorkerRuntimeContext } from "../coordinator/types"
+import {
+  runCoordinatorDispatcher,
+  type WorkerDefinition,
+  type WorkerResult,
+  type WorkerRuntimeContext,
+} from "../coordinator"
 import {
   buildSolutionReviewAgentBrief,
+  runSolutionReviewAssistant,
   runSolutionReviewAssistantInChildSession,
+  type SolutionReviewAgentBrief,
+  type SolutionReviewAssistantExecutionResult,
+  type SolutionReviewAgentResponse,
 } from "../agents"
 import type {
   BackgroundSolutionReviewNextAction,
@@ -13,7 +24,9 @@ import {
   assessClarificationQuestions,
   type ClarificationSummary,
 } from "../workers/requirements-clarification/question-templates"
-import { executeClarificationWorkerSubsession } from "../workers/requirements-clarification/worker"
+import { executeClarificationWorker } from "../workers/requirements-clarification/worker"
+import { ClarificationWorkerOutputSchema } from "../workers/requirements-clarification/types"
+import { executeSolutionReviewAssistantWorker } from "../workers/solution-review-assistant/worker"
 import {
   runSolutionReviewWorkflow,
   type SolutionReviewWorkflowResult,
@@ -22,10 +35,19 @@ import {
 
 export type SolutionReviewAgentHandoff = BackgroundSolutionReviewWorkflowResult & {
   clarificationSummary: ClarificationSummary
+  agentBrief: SolutionReviewAgentBrief
+  agentResponse: SolutionReviewAgentResponse
+  workersInvoked: string[]
+  executionOrder: string[]
   finalResponse: string
   nextActions: string[]
   warnings?: string[]
 }
+
+const SolutionReviewAssistantWorkerOutputSchema = z.object({
+  finalResponse: z.string(),
+  nextActions: z.array(z.string()),
+})
 
 const emptyClarificationSummary: ClarificationSummary = {
   missingFields: [],
@@ -41,22 +63,6 @@ function uniqueStrings(values: string[]): string[] {
 
 function formatClarificationItem(question: ClarificationSummary["clarificationQuestions"][number]): string {
   return `${question.field}: ${question.question}`
-}
-
-function buildClarificationWorkerInput(
-  workflow: SolutionReviewWorkflowResult,
-): WorkerInput {
-  return {
-    requirement: workflow.sliceInput.requirement,
-    devices: workflow.sliceInput.devices,
-    racks: workflow.sliceInput.racks,
-    ports: workflow.sliceInput.ports,
-    links: workflow.sliceInput.links,
-    segments: workflow.sliceInput.segments,
-    allocations: workflow.sliceInput.allocations,
-    validationIssues: workflow.validationSummary.issues,
-    reviewSummary: workflow.reviewSummary,
-  }
 }
 
 function getClarificationFallbackActions(
@@ -89,48 +95,75 @@ function getClarificationFallbackWarnings(errors?: string[]): string[] {
       ]
 }
 
-async function runClarificationChildSession(args: {
-  workflow: SolutionReviewWorkflowResult
+function buildReviewWorkflowWorkers(): WorkerDefinition[] {
+  return [
+    {
+      id: "requirements-clarification",
+      name: "Requirements Clarification",
+      description: "Analyzes the current slice and returns clarification questions when needed.",
+      triggerCondition: () => true,
+      priority: 100,
+      dependencies: [],
+      execute: executeClarificationWorker,
+    },
+    {
+      id: "solution-review-assistant",
+      name: "Solution Review Assistant",
+      description: "Produces the assistant follow-up response from the workflow brief and prior worker results.",
+      triggerCondition: () => true,
+      priority: 200,
+      dependencies: ["requirements-clarification"],
+      execute: executeSolutionReviewAssistantWorker,
+    },
+  ]
+}
+
+function buildClarificationWorkerOutcome(args: {
   clarificationSummary: ClarificationSummary
-  runtime: WorkerRuntimeContext
+  workerResult?: WorkerResult
 }): Promise<{
   nextActions: string[]
   warnings?: string[]
 }> {
-  const childResult = await executeClarificationWorkerSubsession(
-    buildClarificationWorkerInput(args.workflow),
-    args.runtime,
-  )
+  const { clarificationSummary, workerResult } = args
 
-  if (!childResult.success) {
-    return {
-      nextActions: getClarificationFallbackActions(args.clarificationSummary),
-      warnings: uniqueStrings(getClarificationFallbackWarnings(childResult.result.errors)),
-    }
+  if (!workerResult || workerResult.status === "failed") {
+    return Promise.resolve({
+      nextActions: getClarificationFallbackActions(clarificationSummary),
+      warnings: uniqueStrings(getClarificationFallbackWarnings(workerResult?.errors)),
+    })
   }
 
-  if (args.clarificationSummary.clarificationQuestions.length === 0) {
-    return {
+  const parsedOutput = ClarificationWorkerOutputSchema.safeParse(workerResult.output)
+  if (!parsedOutput.success) {
+    return Promise.resolve({
+      nextActions: getClarificationFallbackActions(clarificationSummary),
+      warnings: uniqueStrings(getClarificationFallbackWarnings(workerResult.errors)),
+    })
+  }
+
+  if (clarificationSummary.clarificationQuestions.length === 0) {
+    return Promise.resolve({
       nextActions: [],
-      ...(childResult.result.errors && childResult.result.errors.length > 0
+      ...(workerResult.errors && workerResult.errors.length > 0
         ? {
-            warnings: uniqueStrings(childResult.result.errors),
+            warnings: uniqueStrings(workerResult.errors),
           }
         : {}),
-    }
+    })
   }
 
-  return {
+  return Promise.resolve({
     nextActions: uniqueStrings([
-      ...childResult.result.recommendations,
-      ...childResult.result.output.suggestions,
+      ...workerResult.recommendations,
+      ...parsedOutput.data.suggestions,
     ]),
-    ...(childResult.result.errors && childResult.result.errors.length > 0
+    ...(workerResult.errors && workerResult.errors.length > 0
       ? {
-          warnings: uniqueStrings(childResult.result.errors),
+          warnings: uniqueStrings(workerResult.errors),
         }
       : {}),
-  }
+  })
 }
 
 function deriveWorkflowState(args: {
@@ -213,6 +246,65 @@ function collectClarificationItems(
   }
 }
 
+function buildAgentResponse(args: {
+  brief: SolutionReviewAgentBrief
+  finalResponse: string
+  checklist: string[]
+}): SolutionReviewAgentResponse {
+  return {
+    agentID: args.brief.agentID,
+    orchestrationState: args.brief.orchestrationState,
+    nextAction: args.brief.nextAction,
+    response: args.finalResponse,
+    checklist: uniqueStrings(args.checklist),
+  }
+}
+
+function buildAssistantExecutionResult(args: {
+  brief: SolutionReviewAgentBrief
+  workerResult?: WorkerResult
+}): SolutionReviewAssistantExecutionResult {
+  const { brief, workerResult } = args
+
+  if (!workerResult || workerResult.status === "failed") {
+    const fallbackResponse = runSolutionReviewAssistant(brief)
+
+    return {
+      finalResponse: fallbackResponse.response,
+      nextActions: uniqueStrings(fallbackResponse.checklist),
+      ...(workerResult?.errors && workerResult.errors.length > 0
+        ? {
+            warnings: uniqueStrings(workerResult.errors),
+          }
+        : {}),
+    }
+  }
+
+  const parsedOutput = SolutionReviewAssistantWorkerOutputSchema.safeParse(workerResult.output)
+  if (!parsedOutput.success) {
+    const fallbackResponse = runSolutionReviewAssistant(brief)
+
+    return {
+      finalResponse: fallbackResponse.response,
+      nextActions: uniqueStrings(fallbackResponse.checklist),
+      warnings: uniqueStrings([
+        ...(workerResult.errors ?? []),
+        "Solution review assistant worker returned invalid output result.",
+      ]),
+    }
+  }
+
+  return {
+    finalResponse: parsedOutput.data.finalResponse,
+    nextActions: uniqueStrings(parsedOutput.data.nextActions),
+    ...(workerResult.errors && workerResult.errors.length > 0
+      ? {
+          warnings: uniqueStrings(workerResult.errors),
+        }
+      : {}),
+  }
+}
+
 export async function runSolutionReviewAgentHandoff(args: {
   input: unknown
   pluginConfig: CloudSolutionConfig
@@ -227,19 +319,35 @@ export async function runSolutionReviewAgentHandoff(args: {
     })
 
     const clarificationSummary = assessClarificationQuestions(workflow.sliceInput)
-    const clarificationResult = await runClarificationChildSession({
-      workflow,
-      clarificationSummary,
-      runtime: args.runtime,
-    })
     const workflowResult = buildWorkflowResult({
       workflow,
       clarificationSummary,
     })
     const clarificationItems = collectClarificationItems(clarificationSummary)
-    const assistantResult = await runSolutionReviewAssistantInChildSession({
-      brief: buildSolutionReviewAgentBrief(workflowResult, clarificationItems),
+    const agentBrief = buildSolutionReviewAgentBrief(workflowResult, clarificationItems)
+    const coordinatorResult = await runCoordinatorDispatcher({
+      input: {
+        ...workflow.sliceInput,
+        context: {
+          agentBrief,
+        },
+      },
+      workers: buildReviewWorkflowWorkers(),
       runtime: args.runtime,
+      reviewSummary: workflow.reviewSummary,
+    })
+    const clarificationResult = await buildClarificationWorkerOutcome({
+      clarificationSummary,
+      workerResult: coordinatorResult.aggregatedOutput["requirements-clarification"],
+    })
+    const assistantResult = buildAssistantExecutionResult({
+      brief: agentBrief,
+      workerResult: coordinatorResult.aggregatedOutput["solution-review-assistant"],
+    })
+    const agentResponse = buildAgentResponse({
+      brief: agentBrief,
+      finalResponse: assistantResult.finalResponse,
+      checklist: assistantResult.nextActions,
     })
 
     const warnings = uniqueStrings([
@@ -250,10 +358,14 @@ export async function runSolutionReviewAgentHandoff(args: {
     return {
       ...workflowResult,
       clarificationSummary,
-      finalResponse: assistantResult.finalResponse,
+      agentBrief,
+      agentResponse,
+      workersInvoked: coordinatorResult.workersInvoked,
+      executionOrder: coordinatorResult.executionOrder,
+      finalResponse: agentResponse.response,
       nextActions: uniqueStrings([
         ...clarificationResult.nextActions,
-        ...assistantResult.nextActions,
+        ...agentResponse.checklist,
       ]),
       ...(warnings.length > 0
         ? {
@@ -265,16 +377,26 @@ export async function runSolutionReviewAgentHandoff(args: {
     const failedWorkflow = buildFailedWorkflow(
       error instanceof Error ? error.message : String(error),
     )
+    const agentBrief = buildSolutionReviewAgentBrief(failedWorkflow)
     const assistantResult = await runSolutionReviewAssistantInChildSession({
-      brief: buildSolutionReviewAgentBrief(failedWorkflow),
+      brief: agentBrief,
       runtime: args.runtime,
+    })
+    const agentResponse = buildAgentResponse({
+      brief: agentBrief,
+      finalResponse: assistantResult.finalResponse,
+      checklist: assistantResult.nextActions,
     })
 
     return {
       ...failedWorkflow,
       clarificationSummary: emptyClarificationSummary,
-      finalResponse: assistantResult.finalResponse,
-      nextActions: assistantResult.nextActions,
+      agentBrief,
+      agentResponse,
+      workersInvoked: [],
+      executionOrder: [],
+      finalResponse: agentResponse.response,
+      nextActions: agentResponse.checklist,
       ...(assistantResult.warnings
         ? {
             warnings: assistantResult.warnings,

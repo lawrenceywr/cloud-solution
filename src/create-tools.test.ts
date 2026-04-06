@@ -157,6 +157,50 @@ function createBundleToolInput() {
   return createScn01SingleRackConnectivityFixture()
 }
 
+function createCaptureRequirementToolInput() {
+  return {
+    projectName: "Captured Cloud Intake",
+    scopeType: "cloud" as const,
+    artifactRequests: ["ip-allocation-table"],
+    requirementNotes: "Need a first-pass cloud allocation draft.",
+  }
+}
+
+function createDraftTopologyToolInput() {
+  return {
+    requirement: {
+      id: "req-draft-tool-1",
+      projectName: "Draft Tool Example",
+      scopeType: "cloud" as const,
+      artifactRequests: ["ip-allocation-table"],
+    },
+    structuredInput: {
+      racks: [],
+      devices: [],
+      links: [],
+      segments: [
+        {
+          name: "Public Service",
+          segmentType: "service" as const,
+          cidr: "10.70.0.0/24",
+          gateway: "10.70.0.1",
+          purpose: "public-service",
+        },
+      ],
+      allocations: [
+        {
+          segmentName: "Public Service",
+          allocationType: "service" as const,
+          ipAddress: "10.70.0.10",
+          hostname: "draft-api",
+          interfaceName: "eni-public",
+          purpose: "public-api",
+        },
+      ],
+    },
+  }
+}
+
 describe("createTools", () => {
   test("registers describe_cloud_solution tool", async () => {
     const config = loadPluginConfig(process.cwd())
@@ -181,6 +225,131 @@ describe("createTools", () => {
     expect(parsed.pluginName).toBe("cloud-solution")
     expect(parsed.supportedArtifacts).toContain("ip-allocation-table")
     expect(parsed.exampleRequirement.scopeType).toBe("data-center")
+  })
+
+  test("registers capture_solution_requirements tool", async () => {
+    const config = loadPluginConfig(process.cwd())
+    const managers = createManagers({
+      context: { directory: process.cwd() },
+      pluginConfig: config,
+    })
+
+    const tools = createTools({
+      pluginConfig: config,
+      managers,
+    })
+
+    expect(Object.keys(tools)).toContain("capture_solution_requirements")
+
+    const response = await tools.capture_solution_requirements.execute(
+      createCaptureRequirementToolInput(),
+      createTestToolContext({ sessionID: "tool-test-session" }),
+    )
+    const parsed = JSON.parse(response)
+
+    expect(parsed.requirement.id).toBe("req-captured-cloud-intake")
+    expect(parsed.requirement.scopeType).toBe("cloud")
+    expect(parsed.requirement.artifactRequests).toEqual(["ip-allocation-table"])
+    expect(parsed.requirement.sourceRefs).toEqual([
+      {
+        kind: "user-input",
+        ref: "capture_solution_requirements",
+        note: "Need a first-pass cloud allocation draft.",
+      },
+    ])
+    expect(parsed.draftInput.requirement).toEqual(parsed.requirement)
+    expect(parsed.draftInput.structuredInput).toEqual({
+      racks: [],
+      devices: [],
+      links: [],
+      segments: [],
+      allocations: [],
+    })
+    expect(parsed.nextAction).toBe("draft_topology_model")
+  })
+
+  test("registers draft_topology_model tool", async () => {
+    const config = loadPluginConfig(process.cwd())
+    const managers = createManagers({
+      context: { directory: process.cwd() },
+      pluginConfig: config,
+    })
+
+    const tools = createTools({
+      pluginConfig: config,
+      managers,
+    })
+
+    expect(Object.keys(tools)).toContain("draft_topology_model")
+
+    const response = await tools.draft_topology_model.execute(
+      createDraftTopologyToolInput(),
+      createTestToolContext({ sessionID: "tool-test-session" }),
+    )
+    const parsed = JSON.parse(response)
+
+    expect(parsed.normalizedInput.requirement.id).toBe("req-draft-tool-1")
+    expect(parsed.normalizedInput.segments[0]).toEqual(
+      expect.objectContaining({
+        id: "segment-public-service",
+        name: "Public Service",
+        statusConfidence: "inferred",
+      }),
+    )
+    expect(parsed.normalizedInput.allocations[0]).toEqual(
+      expect.objectContaining({
+        id: "allocation-public-service-10-70-0-10",
+        segmentId: "segment-public-service",
+        statusConfidence: "inferred",
+      }),
+    )
+    expect(parsed.validationSummary.valid).toBe(false)
+    expect(parsed.validationSummary.issues.map((issue: { code: string }) => issue.code)).toContain(
+      "network_fact_not_confirmed",
+    )
+  })
+
+  test("draft_topology_model rejects confirmed candidate facts", async () => {
+    const config = loadPluginConfig(process.cwd())
+    const managers = createManagers({
+      context: { directory: process.cwd() },
+      pluginConfig: config,
+    })
+
+    const tools = createTools({
+      pluginConfig: config,
+      managers,
+    })
+
+    await expect(
+      tools.draft_topology_model.execute(
+        {
+          requirement: {
+            id: "req-draft-tool-confirmed",
+            projectName: "Draft Tool Confirmed",
+            scopeType: "cloud",
+            artifactRequests: ["ip-allocation-table"],
+          },
+          structuredInput: {
+            racks: [],
+            devices: [],
+            links: [],
+            segments: [
+              {
+                name: "Public Service",
+                segmentType: "service",
+                cidr: "10.71.0.0/24",
+                gateway: "10.71.0.1",
+                purpose: "public-service",
+                statusConfidence: "confirmed",
+              },
+            ],
+            allocations: [],
+          },
+        },
+        createTestToolContext({ sessionID: "tool-test-session" }),
+      ),
+    ).rejects.toThrow()
   })
 
   test("registers generate_ip_allocation_table tool", async () => {
@@ -636,6 +805,14 @@ describe("createTools", () => {
 
     expect(createCalls).toHaveLength(2)
     expect(promptCalls).toHaveLength(2)
+    expect(parsed.workersInvoked).toEqual([
+      "requirements-clarification",
+      "solution-review-assistant",
+    ])
+    expect(parsed.executionOrder).toEqual([
+      "requirements-clarification",
+      "solution-review-assistant",
+    ])
     expect(createCalls[0]).toEqual(
       expect.objectContaining({
         body: expect.objectContaining({
@@ -664,12 +841,113 @@ describe("createTools", () => {
       nonBlockingQuestions: [],
       suggestions: [],
     })
+    expect(parsed.agentBrief.agentID).toBe("solution_review_assistant")
+    expect(parsed.agentBrief.orchestrationState).toBe("export_ready")
+    expect(parsed.agentResponse.agentID).toBe("solution_review_assistant")
+    expect(parsed.agentResponse.orchestrationState).toBe("export_ready")
+    expect(parsed.agentResponse.nextAction).toBe("export_bundle")
     expect(parsed.finalResponse).toContain("export-ready")
+    expect(parsed.finalResponse).toBe(parsed.agentResponse.response)
     expect(Array.isArray(parsed.nextActions)).toBe(true)
     expect(parsed.nextActions.length).toBeGreaterThan(0)
     expect(parsed).not.toHaveProperty("warnings")
-    expect(parsed).not.toHaveProperty("agentBrief")
-    expect(parsed).not.toHaveProperty("agentResponse")
+  })
+
+  test("start_solution_review_workflow keeps SCN-04 export-ready for cloud-only allocation slices", async () => {
+    const config = loadPluginConfig(process.cwd())
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "requirements-clarification",
+          status: "success",
+          output: {
+            missingFields: [],
+            clarificationQuestions: [],
+            suggestions: [],
+          },
+          recommendations: ["输入完整，无需澄清"],
+        }),
+        JSON.stringify({
+          workerId: "solution-review-assistant",
+          status: "success",
+          output: {
+            finalResponse:
+              "The workflow is export-ready; use the bundled artifacts as the final reviewed output.",
+            nextActions: ["export_bundle", "artifact-bundle-index.md"],
+          },
+          recommendations: ["export_bundle", "artifact-bundle-index.md"],
+        }),
+      ],
+    })
+    const managers = createManagers({
+      context: {
+        directory: process.cwd(),
+        worktree: process.cwd(),
+        client,
+      },
+      pluginConfig: config,
+    })
+
+    const tools = createTools({
+      pluginConfig: config,
+      managers,
+      context: {
+        directory: process.cwd(),
+        worktree: process.cwd(),
+        client,
+      },
+    })
+
+    const response = await tools.start_solution_review_workflow.execute(
+      {
+        requirement: {
+          id: "req-scn-04",
+          projectName: "SCN-04 Simple Cloud Network Allocation",
+          scopeType: "cloud",
+          artifactRequests: ["ip-allocation-table"],
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+        devices: [],
+        racks: [],
+        ports: [],
+        links: [],
+        segments: [
+          {
+            id: "segment-public-service",
+            name: "public-service",
+            segmentType: "service",
+            cidr: "10.40.0.0/24",
+            gateway: "10.40.0.1",
+            purpose: "public-service",
+            sourceRefs: [],
+            statusConfidence: "confirmed",
+          },
+        ],
+        allocations: [
+          {
+            id: "allocation-public-gateway",
+            segmentId: "segment-public-service",
+            allocationType: "gateway",
+            ipAddress: "10.40.0.1",
+            purpose: "public-gateway",
+            sourceRefs: [],
+            statusConfidence: "confirmed",
+          },
+        ],
+      },
+      createTestToolContext({ sessionID: "tool-test-session" }),
+    )
+    const parsed = JSON.parse(response)
+
+    expect(parsed.orchestrationState).toBe("export_ready")
+    expect(parsed.clarificationSummary).toEqual({
+      missingFields: [],
+      clarificationQuestions: [],
+      blockingQuestions: [],
+      nonBlockingQuestions: [],
+      suggestions: [],
+    })
   })
 
   test("fails start_solution_review_workflow when no runtime client is available", () => {
