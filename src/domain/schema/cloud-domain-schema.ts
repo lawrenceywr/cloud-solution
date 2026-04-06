@@ -142,6 +142,8 @@ export const ValidationIssueCodeSchema = z.enum([
   "redundancy_group_inconsistent",
   "segment_cidr_required",
   "segment_cidr_invalid",
+  "segment_cidr_overlap",
+  "segment_gateway_required",
   "segment_gateway_invalid",
   "segment_gateway_requires_cidr",
   "segment_gateway_outside_cidr",

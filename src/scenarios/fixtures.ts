@@ -621,3 +621,84 @@ export function createScn03MultiRackPodFixture(): CloudSolutionSliceInput {
     ],
   }
 }
+
+export function createScn04CloudNetworkAllocationFixture(): CloudSolutionSliceInput {
+  return {
+    requirement: {
+      id: "req-scn-04",
+      projectName: "SCN-04 Simple Cloud Network Allocation",
+      scopeType: "cloud",
+      artifactRequests: ["ip-allocation-table"],
+      sourceRefs: [],
+      statusConfidence: "confirmed",
+    },
+    devices: [],
+    racks: [],
+    ports: [],
+    links: [],
+    segments: [
+      {
+        id: "segment-public-service",
+        name: "public-service",
+        segmentType: "service",
+        cidr: "10.40.0.0/24",
+        gateway: "10.40.0.1",
+        purpose: "public-service",
+        sourceRefs: [],
+        statusConfidence: "confirmed",
+      },
+      {
+        id: "segment-internal-service",
+        name: "internal-service",
+        segmentType: "service",
+        cidr: "10.41.0.0/24",
+        gateway: "10.41.0.1",
+        purpose: "internal-service",
+        sourceRefs: [],
+        statusConfidence: "confirmed",
+      },
+    ],
+    allocations: [
+      {
+        id: "allocation-public-gateway",
+        segmentId: "segment-public-service",
+        allocationType: "gateway",
+        ipAddress: "10.40.0.1",
+        purpose: "public-gateway",
+        sourceRefs: [],
+        statusConfidence: "confirmed",
+      },
+      {
+        id: "allocation-public-api",
+        segmentId: "segment-public-service",
+        allocationType: "service",
+        ipAddress: "10.40.0.10",
+        hostname: "api-gateway",
+        interfaceName: "eni-public",
+        purpose: "public-api",
+        sourceRefs: [],
+        statusConfidence: "confirmed",
+      },
+      {
+        id: "allocation-internal-gateway",
+        segmentId: "segment-internal-service",
+        allocationType: "gateway",
+        ipAddress: "10.41.0.1",
+        purpose: "internal-gateway",
+        sourceRefs: [],
+        statusConfidence: "confirmed",
+      },
+      {
+        id: "allocation-internal-orders",
+        segmentId: "segment-internal-service",
+        allocationType: "service",
+        ipAddress: "10.41.0.20",
+        hostname: "orders-api",
+        interfaceName: "eni-private",
+        purpose: "orders-service",
+        sourceRefs: [],
+        statusConfidence: "confirmed",
+      },
+    ],
+  }
+}

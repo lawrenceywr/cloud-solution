@@ -5,6 +5,7 @@ import {
   createScn01SingleRackConnectivityFixture,
   createScn02DualTorFixture,
   createScn03MultiRackPodFixture,
+  createScn04CloudNetworkAllocationFixture,
 } from "./fixtures"
 
 async function invokeTool(args: {
@@ -147,5 +148,37 @@ describe("scenario acceptance", () => {
       "ip-allocation-table.md",
     ])
     expect(bundle.bundleIndex.content).toContain("Included File Count: 6")
+  })
+
+  test("SCN-04 passes end to end through cloud IP validation and artifact generation", async () => {
+    const fixture = createScn04CloudNetworkAllocationFixture()
+
+    const validation = await invokeTool({
+      toolName: "validate_solution_model",
+      fixture,
+    })
+    const ipAllocation = await invokeTool({
+      toolName: "generate_ip_allocation_table",
+      fixture,
+    })
+    const bundle = await invokeTool({
+      toolName: "export_artifact_bundle",
+      fixture,
+    })
+
+    expect(validation.valid).toBe(true)
+    expect(validation.issues).toEqual([])
+    expect(ipAllocation.artifact.content).toContain("Status: ready")
+    expect(ipAllocation.artifact.content).toContain("public-service")
+    expect(ipAllocation.artifact.content).toContain("internal-service")
+    expect(ipAllocation.artifact.content).toContain("10.40.0.10")
+    expect(ipAllocation.artifact.content).toContain("10.41.0.20")
+    expect(bundle.exportReady).toBe(true)
+    expect(bundle.workflowState).toBe("export_ready")
+    expect(bundle.includedArtifactNames).toEqual([
+      "artifact-bundle-index.md",
+      "design-assumptions-and-gaps.md",
+      "ip-allocation-table.md",
+    ])
   })
 })

@@ -123,6 +123,24 @@ function isIpv4InCidr(address: string, cidr: string): boolean {
   return (addressNumber & mask) === (parsedCidr.network & mask)
 }
 
+function getIpv4CidrRange(cidr: string): { start: number; end: number } | null {
+  const parsedCidr = parseIpv4Cidr(cidr)
+  if (!parsedCidr) {
+    return null
+  }
+
+  const mask = parsedCidr.prefix === 0
+    ? 0
+    : (0xffffffff << (32 - parsedCidr.prefix)) >>> 0
+  const start = parsedCidr.network & mask
+  const hostCount = parsedCidr.prefix === 32 ? 1 : 2 ** (32 - parsedCidr.prefix)
+
+  return {
+    start,
+    end: start + hostCount - 1,
+  }
+}
+
 function validateSegment(segment: NetworkSegment): ValidationIssue[] {
   const issues: ValidationIssue[] = []
   const entityRef = `segment:${segment.id}`
@@ -195,6 +213,81 @@ function validateSegment(segment: NetworkSegment): ValidationIssue[] {
           subjectId: segment.id,
           path: "segments[].gateway",
           entityRefs: [entityRef],
+        }),
+      )
+    }
+  }
+
+  return issues
+}
+
+function validateNetworkSegmentRelationships(args: {
+  input: CloudSolutionSliceInput
+  requiresIpAllocationTable: boolean
+}): ValidationIssue[] {
+  const { input, requiresIpAllocationTable } = args
+  const issues: ValidationIssue[] = []
+  const segmentIdsWithAllocations = new Set(input.allocations.map((allocation) => allocation.segmentId))
+  const candidateSegments = input.segments
+    .filter((segment) => subnetLikeSegmentTypes.has(segment.segmentType))
+    .slice()
+    .sort((left, right) => left.id.localeCompare(right.id))
+
+  for (const segment of candidateSegments) {
+    const requiresGateway = requiresIpAllocationTable || segmentIdsWithAllocations.has(segment.id)
+
+    if (requiresGateway && !segment.gateway) {
+      issues.push(
+        createIssue({
+          code: "segment_gateway_required",
+          message: `Segment ${segment.id} requires a gateway for the current IP planning slice.`,
+          severity: "blocking",
+          subjectType: "segment",
+          subjectId: segment.id,
+          path: "segments[].gateway",
+          entityRefs: [`segment:${segment.id}`],
+        }),
+      )
+    }
+  }
+
+  for (let index = 0; index < candidateSegments.length; index += 1) {
+    const currentSegment = candidateSegments[index]
+    if (!currentSegment?.cidr) {
+      continue
+    }
+
+    const currentRange = getIpv4CidrRange(currentSegment.cidr)
+    if (!currentRange) {
+      continue
+    }
+
+    for (let nextIndex = index + 1; nextIndex < candidateSegments.length; nextIndex += 1) {
+      const nextSegment = candidateSegments[nextIndex]
+      if (!nextSegment?.cidr) {
+        continue
+      }
+
+      const nextRange = getIpv4CidrRange(nextSegment.cidr)
+      if (!nextRange) {
+        continue
+      }
+
+      const overlaps = currentRange.start <= nextRange.end && nextRange.start <= currentRange.end
+      if (!overlaps) {
+        continue
+      }
+
+      issues.push(
+        createIssue({
+          code: "segment_cidr_overlap",
+          message: `Segments ${currentSegment.id} and ${nextSegment.id} define overlapping CIDR ranges.`,
+          severity: "blocking",
+          subjectType: "segment",
+          subjectId: currentSegment.id,
+          path: "segments[].cidr",
+          entityRefs: [`segment:${currentSegment.id}`, `segment:${nextSegment.id}`],
+          idSuffix: `${currentSegment.id}:${nextSegment.id}`,
         }),
       )
     }
@@ -1180,6 +1273,13 @@ export function validateCloudSolutionModel(
   for (const segment of input.segments) {
     issues.push(...validateSegment(segment))
   }
+
+  issues.push(
+    ...validateNetworkSegmentRelationships({
+      input,
+      requiresIpAllocationTable,
+    }),
+  )
 
   for (const port of input.ports) {
     issues.push(

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 
 import type { CloudSolutionSliceInput } from "../domain"
 import {
+  createScn04CloudNetworkAllocationFixture,
   createScn02DualTorFixture,
   createScn03MultiRackPodFixture,
 } from "../scenarios/fixtures"
@@ -184,6 +185,41 @@ describe("validateCloudSolutionModel", () => {
       "segment_gateway_outside_cidr",
     ])
     expect(issues[0]?.subjectType).toBe("segment")
+  })
+
+  test("blocks IP planning slices when a subnet-like segment is missing a gateway", () => {
+    const baseInput = createScn04CloudNetworkAllocationFixture()
+    const issues = validateCloudSolutionModel({
+      ...baseInput,
+      segments: baseInput.segments.map((segment) =>
+        segment.id === "segment-public-service"
+          ? {
+              ...segment,
+              gateway: undefined,
+            }
+          : segment,
+      ),
+    })
+
+    expect(issues.map((issue) => issue.code)).toContain("segment_gateway_required")
+    expect(hasBlockingIssues(issues)).toBe(true)
+  })
+
+  test("blocks overlapping subnet-like segment ranges in cloud IP planning slices", () => {
+    const baseInput = createScn04CloudNetworkAllocationFixture()
+    const issues = validateCloudSolutionModel({
+      ...baseInput,
+      segments: [
+        baseInput.segments[0]!,
+        {
+          ...baseInput.segments[1]!,
+          cidr: "10.40.0.128/25",
+        },
+      ],
+    })
+
+    expect(issues.map((issue) => issue.code)).toContain("segment_cidr_overlap")
+    expect(hasBlockingIssues(issues)).toBe(true)
   })
 
   test("warns when data-center scope has no devices", () => {
@@ -782,6 +818,13 @@ describe("validateCloudSolutionModel", () => {
       "allocation_ip_invalid",
       "allocation_ip_outside_segment",
     ])
+  })
+
+  test("returns no blocking issues for a valid SCN-04 cloud allocation slice", () => {
+    const issues = validateCloudSolutionModel(createScn04CloudNetworkAllocationFixture())
+
+    expect(issues).toEqual([])
+    expect(hasBlockingIssues(issues)).toBe(false)
   })
 
   test("reports missing link ports and self-linked connections", () => {

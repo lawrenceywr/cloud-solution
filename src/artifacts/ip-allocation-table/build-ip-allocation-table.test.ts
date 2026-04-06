@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 
 import type { CloudSolutionSliceInput, ValidationIssue } from "../../domain"
+import { createScn04CloudNetworkAllocationFixture } from "../../scenarios/fixtures"
 import { buildIpAllocationTableArtifact } from "./build-ip-allocation-table"
 
 function createBaseSliceInput(): CloudSolutionSliceInput {
@@ -92,5 +93,20 @@ describe("buildIpAllocationTableArtifact", () => {
     expect(artifact.content).toContain("Status: blocked")
     expect(artifact.content).toContain("## Blocking Conditions")
     expect(artifact.content).toContain("segment_cidr_required")
+  })
+
+  test("renders the SCN-04 cloud allocation rows in deterministic segment and IP order", () => {
+    const artifact = buildIpAllocationTableArtifact({
+      input: createScn04CloudNetworkAllocationFixture(),
+      issues: [],
+    })
+
+    expect(artifact.content).toContain("Status: ready")
+    expect(artifact.content).toContain("segment-internal-service")
+    expect(artifact.content).toContain("segment-public-service")
+    expect(artifact.content).toContain("orders-api / eni-private")
+    expect(artifact.content).toContain("api-gateway / eni-public")
+    expect(artifact.content.indexOf("10.41.0.1")).toBeLessThan(artifact.content.indexOf("10.41.0.20"))
+    expect(artifact.content.indexOf("10.40.0.1")).toBeLessThan(artifact.content.indexOf("10.40.0.10"))
   })
 })
