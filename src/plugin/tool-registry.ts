@@ -2,7 +2,9 @@ import type { CloudSolutionConfig } from "../config"
 import type { Managers } from "../create-managers"
 import type { RuntimeContext } from "./types"
 import {
+  createCaptureSolutionRequirementsTools,
   createDescribeCloudSolutionTools,
+  createDraftTopologyModelTools,
   createExportArtifactBundleTools,
   createGenerateDeviceCablingTableTools,
   createGenerateDevicePortPlanTools,
@@ -24,10 +26,12 @@ export function createToolRegistry(args: {
   const { pluginConfig, managers, context } = args
 
   const allTools: ToolsRecord = {
+    ...createCaptureSolutionRequirementsTools(),
     ...createDescribeCloudSolutionTools({
       pluginConfig,
       managers,
     }),
+    ...createDraftTopologyModelTools(),
     ...createExportArtifactBundleTools({
       pluginConfig,
     }),
