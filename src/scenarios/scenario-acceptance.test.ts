@@ -7,6 +7,8 @@ import {
   createScn03MultiRackPodFixture,
   createScn04CloudNetworkAllocationFixture,
   createScn05DocumentAssistedDraftFixture,
+  createScn05DocumentExtractionInputFixture,
+  createScn05ExtractedCandidateFactsFixture,
   createScn05PromotedDocumentAssistFixture,
 } from "./fixtures"
 import { createFakeCoordinatorClient } from "../test-helpers/fake-coordinator-client"
@@ -39,6 +41,27 @@ async function invokeReviewWorkflow(args: {
   const result = await runtime.kernel.invokeTool({
     toolName: "start_solution_review_workflow",
     sessionID: "scenario-start-solution-review-workflow",
+    args: args.fixture,
+  })
+
+  return JSON.parse(result)
+}
+
+async function invokeToolWithClient(args: {
+  toolName: string
+  fixture: Record<string, unknown>
+  promptTexts: string[]
+}) {
+  const { client } = createFakeCoordinatorClient({
+    promptTexts: args.promptTexts,
+  })
+  const runtime = createCloudSolutionRuntime(process.cwd(), {
+    worktree: process.cwd(),
+    client,
+  })
+  const result = await runtime.kernel.invokeTool({
+    toolName: args.toolName,
+    sessionID: `scenario-${args.toolName}-with-client`,
     args: args.fixture,
   })
 
@@ -265,6 +288,84 @@ describe("scenario acceptance", () => {
       "allocation:allocation-document-public-service-10-50-0-10",
       "segment:segment-document-public-service",
     ])
+  })
+
+  test("SCN-05 extraction helper produces a draft input that feeds directly into draft_topology_model", async () => {
+    const extraction = await invokeToolWithClient({
+      toolName: "extract_document_candidate_facts",
+      fixture: createScn05DocumentExtractionInputFixture(),
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-assisted-extraction",
+          status: "success",
+          output: {
+            candidateFacts: createScn05ExtractedCandidateFactsFixture(),
+            extractionWarnings: ["Diagram did not expose any rack details."],
+          },
+          recommendations: ["draft_topology_model"],
+        }),
+      ],
+    })
+    const draft = await invokeTool({
+      toolName: "draft_topology_model",
+      fixture: extraction.draftInput,
+    })
+    const review = await invokeReviewWorkflow({
+      fixture: extraction.draftInput,
+      promptTexts: [
+        JSON.stringify({
+          workerId: "requirements-clarification",
+          status: "success",
+          output: {
+            missingFields: ["documentAssist.candidateFacts"],
+            clarificationQuestions: [
+              {
+                field: "documentAssist.candidateFacts",
+                question: "文档提取候选事实尚未确认，请确认需要保留的候选实体后再继续导出。",
+                severity: "warning",
+                suggestion:
+                  "在 draft_topology_model 中通过 confirmation.entityRefs 显式确认候选实体后重新运行 review workflow。",
+              },
+            ],
+            suggestions: [
+              "在 draft_topology_model 中通过 confirmation.entityRefs 显式确认候选实体后重新运行 review workflow。",
+            ],
+          },
+          recommendations: [
+            "在 draft_topology_model 中通过 confirmation.entityRefs 显式确认候选实体后重新运行 review workflow。",
+          ],
+        }),
+        JSON.stringify({
+          workerId: "solution-review-assistant",
+          status: "success",
+          output: {
+            finalResponse:
+              "Draft candidate facts still require confirmation before export can continue.",
+            nextActions: [
+              "segment:segment-document-public-service",
+              "allocation:allocation-document-public-service-10-50-0-10",
+            ],
+          },
+          recommendations: [
+            "segment:segment-document-public-service",
+            "allocation:allocation-document-public-service-10-50-0-10",
+          ],
+        }),
+      ],
+    })
+
+    expect(extraction.nextAction).toBe("draft_topology_model")
+    expect(extraction.draftInput.documentAssist.candidateFacts).toEqual(
+      createScn05ExtractedCandidateFactsFixture(),
+    )
+    expect(extraction.extractionWarnings).toEqual(["Diagram did not expose any rack details."])
+    expect(draft.inputState).toBe("candidate_fact_draft")
+    expect(draft.validationSummary.valid).toBe(false)
+    expect(draft.validationSummary.issues.map((issue: { code: string }) => issue.code)).toContain(
+      "network_fact_not_confirmed",
+    )
+    expect(review.inputState).toBe("candidate_fact_draft")
+    expect(review.orchestrationState).toBe("blocked")
   })
 
   test("SCN-05 reaches export-ready only after explicit confirmation", async () => {

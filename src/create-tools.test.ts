@@ -3,6 +3,8 @@ import { describe, expect, test } from "bun:test"
 import {
   createScn01SingleRackConnectivityFixture,
   createScn05DocumentAssistedDraftFixture,
+  createScn05DocumentExtractionInputFixture,
+  createScn05ExtractedCandidateFactsFixture,
   createScn05PromotedDocumentAssistFixture,
 } from "./scenarios/fixtures"
 import { loadPluginConfig } from "./plugin-config"
@@ -321,18 +323,81 @@ describe("createTools", () => {
       allocations: [],
     })
     expect(parsed.draftInput).not.toHaveProperty("structuredInput")
+    expect(parsed.nextAction).toBe("extract_document_candidate_facts")
   })
 
-  test("document-assisted capture output roundtrips directly into draft_topology_model", async () => {
+  test("registers extract_document_candidate_facts tool and returns a draft-ready documentAssist envelope", async () => {
     const config = loadPluginConfig(process.cwd())
+    const { client, createCalls, promptCalls } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-assisted-extraction",
+          status: "success",
+          output: {
+            candidateFacts: createScn05ExtractedCandidateFactsFixture(),
+            extractionWarnings: ["Diagram did not expose any rack details."],
+          },
+          recommendations: ["draft_topology_model"],
+        }),
+      ],
+    })
     const managers = createManagers({
-      context: { directory: process.cwd() },
+      context: { directory: process.cwd(), worktree: process.cwd(), client },
       pluginConfig: config,
     })
 
     const tools = createTools({
       pluginConfig: config,
       managers,
+      context: { directory: process.cwd(), worktree: process.cwd(), client },
+    })
+
+    expect(Object.keys(tools)).toContain("extract_document_candidate_facts")
+
+    const response = await tools.extract_document_candidate_facts.execute(
+      createScn05DocumentExtractionInputFixture(),
+      createTestToolContext({ sessionID: "tool-test-session" }),
+    )
+    const parsed = JSON.parse(response)
+
+    expect(createCalls).toHaveLength(1)
+    expect(promptCalls).toHaveLength(1)
+    expect(parsed.nextAction).toBe("draft_topology_model")
+    expect(parsed.draftInput.documentAssist.documentSources).toEqual(
+      createScn05DocumentExtractionInputFixture().documentAssist.documentSources,
+    )
+    expect(parsed.draftInput.documentAssist.candidateFacts).toEqual(
+      createScn05ExtractedCandidateFactsFixture(),
+    )
+    expect(parsed.extractionWarnings).toEqual(["Diagram did not expose any rack details."])
+  })
+
+  test("document-assisted capture output roundtrips through extract_document_candidate_facts and into draft_topology_model", async () => {
+    const config = loadPluginConfig(process.cwd())
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-assisted-extraction",
+          status: "success",
+          output: {
+            candidateFacts: createScn05ExtractedCandidateFactsFixture(
+              createDocumentAssistedCaptureRequirementToolInput().documentSources,
+            ),
+            extractionWarnings: [],
+          },
+          recommendations: ["draft_topology_model"],
+        }),
+      ],
+    })
+    const managers = createManagers({
+      context: { directory: process.cwd(), worktree: process.cwd(), client },
+      pluginConfig: config,
+    })
+
+    const tools = createTools({
+      pluginConfig: config,
+      managers,
+      context: { directory: process.cwd(), worktree: process.cwd(), client },
     })
 
     const captureResponse = await tools.capture_solution_requirements.execute(
@@ -340,20 +405,136 @@ describe("createTools", () => {
       createTestToolContext({ sessionID: "tool-test-session" }),
     )
     const captureParsed = JSON.parse(captureResponse)
+    const extractResponse = await tools.extract_document_candidate_facts.execute(
+      captureParsed.draftInput,
+      createTestToolContext({ sessionID: "tool-test-session" }),
+    )
+    const extractParsed = JSON.parse(extractResponse)
     const draftResponse = await tools.draft_topology_model.execute(
-      {
-        ...captureParsed.draftInput,
-        documentAssist: {
-          ...captureParsed.draftInput.documentAssist,
-          candidateFacts: createScn05DocumentAssistedDraftFixture().documentAssist.candidateFacts,
-        },
-      },
+      extractParsed.draftInput,
       createTestToolContext({ sessionID: "tool-test-session" }),
     )
     const draftParsed = JSON.parse(draftResponse)
 
     expect(draftParsed.inputState).toBe("candidate_fact_draft")
     expect(draftParsed.candidateFacts).toHaveLength(2)
+  })
+
+  test("extract_document_candidate_facts rejects seeded candidate facts as input", async () => {
+    const config = loadPluginConfig(process.cwd())
+    const { client } = createFakeCoordinatorClient()
+    const managers = createManagers({
+      context: { directory: process.cwd(), worktree: process.cwd(), client },
+      pluginConfig: config,
+    })
+
+    const tools = createTools({
+      pluginConfig: config,
+      managers,
+      context: { directory: process.cwd(), worktree: process.cwd(), client },
+    })
+
+    await expect(
+      tools.extract_document_candidate_facts.execute(
+        createScn05DocumentAssistedDraftFixture(),
+        createTestToolContext({ sessionID: "tool-test-session" }),
+      ),
+    ).rejects.toThrow(
+      "extract_document_candidate_facts expects an empty candidate-fact scaffold as input.",
+    )
+  })
+
+  test("extract_document_candidate_facts rejects document-assisted extraction when plugin config disables it", async () => {
+    const config = {
+      ...loadPluginConfig(process.cwd()),
+      allow_document_assist: false,
+    }
+    const { client } = createFakeCoordinatorClient()
+    const managers = createManagers({
+      context: { directory: process.cwd(), worktree: process.cwd(), client },
+      pluginConfig: config,
+    })
+
+    const tools = createTools({
+      pluginConfig: config,
+      managers,
+      context: { directory: process.cwd(), worktree: process.cwd(), client },
+    })
+
+    await expect(
+      tools.extract_document_candidate_facts.execute(
+        createScn05DocumentExtractionInputFixture(),
+        createTestToolContext({ sessionID: "tool-test-session" }),
+      ),
+    ).rejects.toThrow("Document-assisted drafting is disabled by plugin config.")
+  })
+
+  test("extract_document_candidate_facts rejects absolute document source paths", async () => {
+    const config = loadPluginConfig(process.cwd())
+    const { client } = createFakeCoordinatorClient()
+    const managers = createManagers({
+      context: { directory: process.cwd(), worktree: process.cwd(), client },
+      pluginConfig: config,
+    })
+
+    const tools = createTools({
+      pluginConfig: config,
+      managers,
+      context: { directory: process.cwd(), worktree: process.cwd(), client },
+    })
+
+    await expect(
+      tools.extract_document_candidate_facts.execute(
+        {
+          ...createScn05DocumentExtractionInputFixture(),
+          documentAssist: {
+            ...createScn05DocumentExtractionInputFixture().documentAssist,
+            documentSources: [
+              {
+                kind: "document",
+                ref: "/tmp/outside-workspace.pdf",
+                note: "Outside workspace",
+              },
+            ],
+          },
+        },
+        createTestToolContext({ sessionID: "tool-test-session" }),
+      ),
+    ).rejects.toThrow("documentSources[].ref must be relative to the current workspace.")
+  })
+
+  test("extract_document_candidate_facts rejects traversing document source paths", async () => {
+    const config = loadPluginConfig(process.cwd())
+    const { client } = createFakeCoordinatorClient()
+    const managers = createManagers({
+      context: { directory: process.cwd(), worktree: process.cwd(), client },
+      pluginConfig: config,
+    })
+
+    const tools = createTools({
+      pluginConfig: config,
+      managers,
+      context: { directory: process.cwd(), worktree: process.cwd(), client },
+    })
+
+    await expect(
+      tools.extract_document_candidate_facts.execute(
+        {
+          ...createScn05DocumentExtractionInputFixture(),
+          documentAssist: {
+            ...createScn05DocumentExtractionInputFixture().documentAssist,
+            documentSources: [
+              {
+                kind: "document",
+                ref: "../outside-workspace.pdf",
+                note: "Traversal outside workspace",
+              },
+            ],
+          },
+        },
+        createTestToolContext({ sessionID: "tool-test-session" }),
+      ),
+    ).rejects.toThrow("documentSources[].ref must stay within the current workspace.")
   })
 
   test("registers draft_topology_model tool", async () => {

@@ -4,6 +4,8 @@ import { createCloudSolutionRuntime } from "./index"
 import {
   createScn01SingleRackConnectivityFixture,
   createScn05DocumentAssistedDraftFixture,
+  createScn05DocumentExtractionInputFixture,
+  createScn05ExtractedCandidateFactsFixture,
   createScn05PromotedDocumentAssistFixture,
 } from "./scenarios/fixtures"
 import { createFakeCoordinatorClient } from "./test-helpers/fake-coordinator-client"
@@ -360,8 +362,142 @@ describe("createCloudSolutionRuntime", () => {
     expect(parsed.validationSummary.issues).toEqual([])
   })
 
-  test("document-assisted capture output roundtrips into draft_topology_model at runtime", async () => {
+  test("routes document-assisted capture to extract_document_candidate_facts at runtime", async () => {
     const runtime = createCloudSolutionRuntime(process.cwd())
+
+    const result = await runtime.kernel.invokeTool({
+      toolName: "capture_solution_requirements",
+      sessionID: "runtime-scn05-capture-session",
+      args: {
+        projectName: "Runtime Document Capture",
+        scopeType: "cloud",
+        artifactRequests: ["ip-allocation-table"],
+        documentSources: [
+          {
+            kind: "document",
+            ref: "fixtures/runtime-roundtrip-supporting.pdf",
+            note: "Runtime roundtrip supporting doc",
+          },
+        ],
+      },
+    })
+    const parsed = JSON.parse(result)
+
+    expect(parsed.nextAction).toBe("extract_document_candidate_facts")
+    expect(parsed.draftInput.documentAssist.documentSources).toEqual([
+      {
+        kind: "document",
+        ref: "fixtures/runtime-roundtrip-supporting.pdf",
+        note: "Runtime roundtrip supporting doc",
+      },
+    ])
+  })
+
+  test("extracts document candidate facts through the runtime kernel", async () => {
+    const { client, createCalls, promptCalls } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-assisted-extraction",
+          status: "success",
+          output: {
+            candidateFacts: createScn05ExtractedCandidateFactsFixture(
+              createScn05DocumentExtractionInputFixture().documentAssist.documentSources,
+            ),
+            extractionWarnings: ["Diagram did not expose any rack details."],
+          },
+          recommendations: ["draft_topology_model"],
+        }),
+      ],
+    })
+    const runtime = createCloudSolutionRuntime(process.cwd(), {
+      worktree: process.cwd(),
+      client,
+    })
+
+    const result = await runtime.kernel.invokeTool({
+      toolName: "extract_document_candidate_facts",
+      sessionID: "runtime-scn05-extract-session",
+      args: createScn05DocumentExtractionInputFixture(),
+    })
+    const parsed = JSON.parse(result)
+
+    expect(createCalls).toHaveLength(1)
+    expect(promptCalls).toHaveLength(1)
+    expect(parsed.nextAction).toBe("draft_topology_model")
+    expect(parsed.draftInput.documentAssist.candidateFacts).toEqual(
+      createScn05ExtractedCandidateFactsFixture(
+        createScn05DocumentExtractionInputFixture().documentAssist.documentSources,
+      ),
+    )
+    expect(parsed.extractionWarnings).toEqual(["Diagram did not expose any rack details."])
+  })
+
+  test("fails extract_document_candidate_facts through the runtime kernel without a client", async () => {
+    const runtime = createCloudSolutionRuntime(process.cwd())
+
+    await expect(
+      runtime.kernel.invokeTool({
+        toolName: "extract_document_candidate_facts",
+        sessionID: "runtime-scn05-extract-session",
+        args: createScn05DocumentExtractionInputFixture(),
+      }),
+    ).rejects.toThrow(
+      "extract_document_candidate_facts requires a plugin runtime client to spawn the internal extraction worker",
+    )
+  })
+
+  test("rejects absolute document source paths through the runtime kernel", async () => {
+    const { client } = createFakeCoordinatorClient()
+    const runtime = createCloudSolutionRuntime(process.cwd(), {
+      worktree: process.cwd(),
+      client,
+    })
+
+    await expect(
+      runtime.kernel.invokeTool({
+        toolName: "extract_document_candidate_facts",
+        sessionID: "runtime-scn05-extract-absolute-path",
+        args: {
+          ...createScn05DocumentExtractionInputFixture(),
+          documentAssist: {
+            ...createScn05DocumentExtractionInputFixture().documentAssist,
+            documentSources: [
+              {
+                kind: "document",
+                ref: "/tmp/outside-workspace.pdf",
+                note: "Outside workspace",
+              },
+            ],
+          },
+        },
+      }),
+    ).rejects.toThrow("documentSources[].ref must be relative to the current workspace.")
+  })
+
+  test("document-assisted capture output roundtrips into draft_topology_model at runtime", async () => {
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-assisted-extraction",
+          status: "success",
+          output: {
+            candidateFacts: createScn05ExtractedCandidateFactsFixture([
+              {
+                kind: "document",
+                ref: "fixtures/runtime-roundtrip-supporting.pdf",
+                note: "Runtime roundtrip supporting doc",
+              },
+            ]),
+            extractionWarnings: [],
+          },
+          recommendations: ["draft_topology_model"],
+        }),
+      ],
+    })
+    const runtime = createCloudSolutionRuntime(process.cwd(), {
+      worktree: process.cwd(),
+      client,
+    })
 
     const captureResult = await runtime.kernel.invokeTool({
       toolName: "capture_solution_requirements",
@@ -380,16 +516,17 @@ describe("createCloudSolutionRuntime", () => {
       },
     })
     const captureParsed = JSON.parse(captureResult)
+    expect(captureParsed.nextAction).toBe("extract_document_candidate_facts")
+    const extractResult = await runtime.kernel.invokeTool({
+      toolName: "extract_document_candidate_facts",
+      sessionID: "runtime-scn05-capture-roundtrip-extract",
+      args: captureParsed.draftInput,
+    })
+    const extractParsed = JSON.parse(extractResult)
     const draftResult = await runtime.kernel.invokeTool({
       toolName: "draft_topology_model",
       sessionID: "runtime-scn05-capture-roundtrip-draft",
-      args: {
-        ...captureParsed.draftInput,
-        documentAssist: {
-          ...captureParsed.draftInput.documentAssist,
-          candidateFacts: createScn05DocumentAssistedDraftFixture().documentAssist.candidateFacts,
-        },
-      },
+      args: extractParsed.draftInput,
     })
     const draftParsed = JSON.parse(draftResult)
 
