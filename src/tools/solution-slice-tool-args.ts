@@ -14,7 +14,7 @@ const confidenceStateSchema = tool.schema.enum([
 ])
 
 const sourceReferenceSchema = tool.schema.object({
-  kind: tool.schema.enum(["user-input", "inventory", "diagram", "document", "system"]),
+  kind: tool.schema.enum(["user-input", "inventory", "diagram", "document", "image", "system"]),
   ref: tool.schema.string(),
   note: tool.schema.string().optional(),
 })

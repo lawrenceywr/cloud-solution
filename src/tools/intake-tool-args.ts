@@ -19,7 +19,15 @@ function createDraftConfidenceStateSchema(defaultValue: "inferred" | "unresolved
 
 function createSourceReferenceSchema() {
   return tool.schema.object({
-    kind: tool.schema.enum(["user-input", "inventory", "diagram", "document", "system"]),
+    kind: tool.schema.enum(["user-input", "inventory", "diagram", "document", "image", "system"]),
+    ref: tool.schema.string(),
+    note: tool.schema.string().optional(),
+  })
+}
+
+function createDocumentSourceSchema() {
+  return tool.schema.object({
+    kind: tool.schema.enum(["document", "diagram", "image"]),
     ref: tool.schema.string(),
     note: tool.schema.string().optional(),
   })
@@ -130,10 +138,35 @@ function createDraftStructuredInputSchema() {
   })
 }
 
+function createDocumentAssistSchema() {
+  const documentSourceSchema = createDocumentSourceSchema()
+  const draftStructuredInputSchema = createDraftStructuredInputSchema()
+
+  return tool.schema.object({
+    documentSources: tool.schema
+      .array(documentSourceSchema)
+      .min(1)
+      .describe("Document, image, or diagram sources that support the candidate facts."),
+    candidateFacts: draftStructuredInputSchema.describe(
+      "Document-derived candidate facts that remain inferred or unresolved until explicitly confirmed.",
+    ),
+  })
+}
+
+function createConfirmationSchema() {
+  return tool.schema.object({
+    entityRefs: tool.schema
+      .array(tool.schema.string())
+      .default([])
+      .describe("Canonical entity refs to promote to confirmed after draft normalization."),
+  })
+}
+
 export function createCaptureSolutionRequirementsArgs(): ToolDefinition["args"] {
   const artifactTypeSchema = createArtifactTypeSchema()
   const confidenceStateSchema = createConfidenceStateSchema("confirmed")
   const sourceReferenceSchema = createSourceReferenceSchema()
+  const documentSourceSchema = createDocumentSourceSchema()
 
   return {
     requirementId: tool.schema
@@ -156,6 +189,10 @@ export function createCaptureSolutionRequirementsArgs(): ToolDefinition["args"] 
       .array(sourceReferenceSchema)
       .default([])
       .describe("Optional explicit source references for the captured requirement."),
+    documentSources: tool.schema
+      .array(documentSourceSchema)
+      .default([])
+      .describe("Optional document/image/diagram sources that will seed the next draft step."),
     statusConfidence: confidenceStateSchema.describe(
       "Confidence state for the captured requirement. Defaults to confirmed for explicit front-door intake.",
     ),
@@ -163,12 +200,22 @@ export function createCaptureSolutionRequirementsArgs(): ToolDefinition["args"] 
 }
 
 export function createDraftTopologyModelArgs(): ToolDefinition["args"] {
+  const draftStructuredInputSchema = createDraftStructuredInputSchema()
+  const documentAssistSchema = createDocumentAssistSchema()
+  const confirmationSchema = createConfirmationSchema()
+
   return {
     requirement: createRequirementSchema().describe(
       "Captured or supplied requirement that the draft topology belongs to.",
     ),
-    structuredInput: createDraftStructuredInputSchema().describe(
-      "Candidate-fact structured input that will be normalized into a canonical draft topology model.",
-    ),
+    structuredInput: draftStructuredInputSchema
+      .optional()
+      .describe("Draft structured input that will be normalized into a canonical topology model."),
+    documentAssist: documentAssistSchema
+      .optional()
+      .describe("Optional document-assisted candidate-fact input for SCN-05 draft preparation."),
+    confirmation: confirmationSchema
+      .optional()
+      .describe("Optional explicit confirmation step that promotes selected candidate facts to confirmed."),
   }
 }

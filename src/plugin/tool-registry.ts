@@ -26,12 +26,16 @@ export function createToolRegistry(args: {
   const { pluginConfig, managers, context } = args
 
   const allTools: ToolsRecord = {
-    ...createCaptureSolutionRequirementsTools(),
+    ...createCaptureSolutionRequirementsTools({
+      pluginConfig,
+    }),
     ...createDescribeCloudSolutionTools({
       pluginConfig,
       managers,
     }),
-    ...createDraftTopologyModelTools(),
+    ...createDraftTopologyModelTools({
+      pluginConfig,
+    }),
     ...createExportArtifactBundleTools({
       pluginConfig,
     }),
