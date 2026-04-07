@@ -2,7 +2,7 @@
 
 Status: completed.
 
-This post-MVP slice is now complete: `SCN-04`, the front-door intake tools, and explicit multi-worker review orchestration have all landed. The next remaining post-MVP work needs a fresh plan around `SCN-05` candidate-fact extraction and later MCP / external integrations.
+This post-MVP slice is now complete: `SCN-04`, the front-door intake tools, explicit multi-worker review orchestration, and the first `SCN-05` candidate-fact/confirmation path have all landed. The next remaining post-MVP work needs a fresh plan around autonomous document-assisted extraction and later MCP / external integrations.
 
 ## Scope
 
@@ -11,6 +11,7 @@ In scope:
 - land `SCN-04` fixture, validation depth, artifact assertions, and scenario acceptance
 - add `capture_solution_requirements` and `draft_topology_model` as the first front-door intake tools
 - route the review workflow through explicit dependency-ordered multi-worker orchestration
+- land the first `SCN-05` document-provenanced candidate-fact and confirmation flow
 - update planning/progress docs after those slices land
 
 Out of scope:
@@ -73,6 +74,8 @@ Out of scope:
 - [x] cloud-oriented validation / IP allocation gaps closed where needed
 - [x] front-door intake tools landed
 - [x] dependency-ordered multi-worker review orchestration landed
+- [x] SCN-05 document-provenanced candidate-fact draft flow landed
+- [x] explicit confirmation/promote flow landed
 - [x] progress docs updated after the slice landed
 
 ## Acceptance for This Stage
@@ -81,4 +84,6 @@ Out of scope:
 - the cloud-oriented path passes validation and IP allocation generation end to end
 - `capture_solution_requirements` and `draft_topology_model` provide a front-door intake path without weakening confirmed-only artifact gating
 - the review workflow exposes deterministic worker ordering while preserving the stable public handoff contract
+- SCN-05 candidate facts remain non-confirmed until explicit confirmation and cannot reach export-ready directly
+- explicit confirmations can promote selected candidate facts into a confirmed export-ready slice
 - targeted tests, full tests, typecheck, and build pass

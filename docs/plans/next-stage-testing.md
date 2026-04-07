@@ -2,7 +2,7 @@
 
 Status: completed.
 
-This testing plan has been satisfied by the completed `SCN-04` + intake-tool + multi-worker orchestration slice. The next post-MVP work needs a fresh testing plan for `SCN-05` candidate-fact extraction and later MCP / external integrations.
+This testing plan has been satisfied by the completed `SCN-04` + intake-tool + multi-worker orchestration + initial `SCN-05` candidate-fact/confirmation slice. The next post-MVP work needs a fresh testing plan for autonomous document-assisted extraction and later MCP / external integrations.
 
 ## Test Layers
 
@@ -15,6 +15,7 @@ Covered surfaces:
 - `src/scenarios/scenario-acceptance.test.ts` now covers end-to-end `SCN-04` validation / artifact / export behavior
 - `src/create-tools.test.ts` and `src/index.test.ts` now cover `capture_solution_requirements` and `draft_topology_model`
 - `src/coordinator/dispatcher.test.ts` and `src/features/solution-review-agent-handoff.test.ts` now cover worker ordering and worker-message flow on the live review path
+- `src/normalizers/prepare-draft-solution-input.test.ts`, `src/create-tools.test.ts`, `src/index.test.ts`, and `src/scenarios/scenario-acceptance.test.ts` now cover SCN-05 candidate-fact drafting and explicit confirmation/promote behavior
 
 ## Verification Commands
 

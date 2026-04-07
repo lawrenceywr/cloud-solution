@@ -114,6 +114,7 @@ src/
 - `src/coordinator/` 中可复用的 child-session / worker 协调基础设施
 - 已经收敛的 review-workflow 公共 handoff 结果：公开 `agentBrief` / `agentResponse`，同时保留 `finalResponse` / `nextActions` 兼容字段
 - `SCN-04` 的可执行 cloud-allocation fixture / validation / artifact / acceptance 覆盖
+- `SCN-05` 的 document-assisted candidate-fact drafting / confirmation 可执行覆盖
 - 首个前门输入工具：`capture_solution_requirements` 与 `draft_topology_model`
 - 基于现有 coordinator 的显式多 worker review orchestration，以及 worker 间消息传递
 
@@ -136,12 +137,13 @@ src/
 15. 把 `SCN-04` 落成云侧 IP allocation 的验收锚点
 16. 加入前门 requirement capture 与 draft topology intake 工具
 17. 把 review path 扩成显式的 dependency-ordered multi-worker orchestration
+18. 落地 document-provenanced 的 SCN-05 candidate-fact draft / promote 路径
 
 当前框架成熟度为：
 
 1. 插件启动流程、runtime kernel、tool registry 以及一个执行前 readiness guard 已实现
 2. 基于 tool 的校验、产物生成、评审摘要、workflow launcher、`SCN-04` 验收、requirement capture 与 draft-topology intake 已端到端打通
-3. review workflow 已经跑在显式多 worker orchestration 上，但更广义的多模态 candidate-fact 与外部集成仍未展开
+3. review workflow 已经跑在显式多 worker orchestration 上，SCN-05 的 candidate-fact draft / promote 路径也已落地，但自治式文档提取与外部集成仍未展开
 
 ## 当前 Agent / Orchestration 状态
 
@@ -152,11 +154,11 @@ src/
 3. `src/workers/solution-review-assistant/worker.ts` 负责依赖有序的 review-assistant worker。
 4. `src/agents/solution-review-assistant.ts` 负责 review assistant 子 agent。
 
-这意味着仓库已经有显式的多 worker review path，但严格按 `src/agents/` 目录来算，目前仍只有 1 个正式 agent 模块；更广义的多模态 candidate-fact 路径和外部集成仍未实现。
+这意味着仓库已经有显式的多 worker review path，也已经有 document-provenanced 的 candidate-fact draft / promote 路径；但严格按 `src/agents/` 目录来算，目前仍只有 1 个正式 agent 模块，自治式文档提取和外部集成仍未实现。
 
 当前分支已经满足 roadmap 中对 MVP 的完成标准。
 
 下一阶段剩余的 post-MVP 开发重点是：
 
-1. 落地 `SCN-05` / 多模态 candidate-fact extraction，同时不削弱 trust boundary
-2. 仅在 candidate-fact 路径稳定后，再增加 MCP / 外部系统集成
+1. 在新的 SCN-05 candidate-fact 路径之上落地真正的 document-assisted extraction helper，同时不削弱 trust boundary
+2. 仅在 extraction 路径稳定后，再增加 MCP / 外部系统集成

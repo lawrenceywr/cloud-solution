@@ -115,6 +115,7 @@ This directory now contains:
 - a reusable coordinator / child-session substrate in `src/coordinator/` for later multi-agent expansion
 - a converged public review-workflow handoff that now exposes `agentBrief` / `agentResponse` while keeping `finalResponse` / `nextActions` for backward compatibility
 - executable `SCN-04` cloud-allocation coverage in fixtures, validation, artifact generation, and scenario acceptance
+- executable `SCN-05` document-assisted candidate-fact drafting and confirmation coverage
 - first front-door intake tools for `capture_solution_requirements` and `draft_topology_model`
 - explicit multi-worker review orchestration with dependency-ordered worker execution and worker-to-worker message passing
 
@@ -137,12 +138,13 @@ The current implementation covers:
 15. a cloud-oriented `SCN-04` acceptance anchor for IP allocation planning
 16. front-door requirement capture and draft-topology intake tools
 17. explicit dependency-ordered multi-worker orchestration on the review path
+18. document-provenanced SCN-05 candidate-fact drafts with explicit confirmation/promotion
 
 The current framework maturity is:
 
 1. plugin boot flow, runtime kernel, tool registry, and one pre-execution readiness guard are implemented
 2. tool-driven validation, artifact generation, review summary, workflow launch, `SCN-04` acceptance, requirement capture, and draft-topology intake are implemented end to end
-3. the review workflow now runs through explicit multi-worker orchestration on the existing coordinator substrate, while broader multimodal/external integrations remain out of scope
+3. the review workflow now runs through explicit multi-worker orchestration on the existing coordinator substrate, and the SCN-05 candidate-fact draft/promote path is now implemented without autonomous extraction
 
 ## Current Agent / Orchestration Status
 
@@ -153,11 +155,11 @@ The branch now has four concrete runtime roles in the first review workflow:
 3. `src/workers/solution-review-assistant/worker.ts` runs the dependency-ordered review-assistant worker.
 4. `src/agents/solution-review-assistant.ts` runs the review-assistant child agent.
 
-That means the codebase now has an explicit multi-worker review path, but still only one formal `src/agents/` agent module today. The broader multimodal candidate-fact path and external integration layer are still not implemented.
+That means the codebase now has an explicit multi-worker review path and a document-provenanced candidate-fact draft/promote path, but still only one formal `src/agents/` agent module today. Autonomous document extraction and external integration layers are still not implemented.
 
 The roadmap MVP done criteria are now satisfied on this branch.
 
 The next development focus is now the remaining post-MVP work:
 
-1. land `SCN-05` / multimodal candidate-fact extraction without weakening the trust boundary
-2. add MCP / external-system integrations only after the candidate-fact path is stable
+1. land the actual document-assisted extraction helper on top of the new SCN-05 candidate-fact path without weakening the trust boundary
+2. add MCP / external-system integrations only after the extraction path is stable

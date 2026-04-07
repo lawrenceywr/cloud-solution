@@ -302,7 +302,27 @@ Active next focus:
   - worker dependency ordering is covered by tests
   - public workflow output remains deterministic while surfacing richer orchestration state
 
+### BL-023 - Land SCN-05 candidate-fact drafting [completed]
+
+- **Goal**: add the first document-provenanced candidate-fact layer without introducing autonomous extraction
+- **Depends on**: `BL-021`, `BL-022`
+- **Source docs**: `docs/scenarios.md`, `docs/architecture.md`
+- **Acceptance**:
+  - document/image/diagram-backed candidate facts enter `draft_topology_model`
+  - candidate facts remain `inferred` or `unresolved` until explicitly confirmed
+  - SCN-05 draft tests and scenario acceptance prove the path cannot reach export-ready directly
+
+### BL-024 - Add explicit confirmation/promote flow [completed]
+
+- **Goal**: promote selected candidate facts into confirmed canonical input without breaking the existing review/export contract
+- **Depends on**: `BL-023`
+- **Source docs**: `docs/scenarios.md`, `docs/architecture.md`
+- **Acceptance**:
+  - `draft_topology_model` accepts explicit confirmations/promotions
+  - `start_solution_review_workflow` distinguishes structured input, candidate-fact draft, and confirmed slice inputs
+  - review/export only become export-ready after confirmed data is supplied
+
 ## Not Scheduled Yet
 
-- multimodal candidate fact extraction
+- autonomous document-assisted extraction helper
 - external system integrations
