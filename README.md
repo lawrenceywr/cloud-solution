@@ -60,7 +60,7 @@ requirements / inventory / topology / rack docs
 3. Build row builders for the target tables.
 4. Add markdown and machine-readable renderers.
 5. Wire tools and hooks into the plugin.
-6. Add multimodal-assisted extraction only after the trust boundary is stable.
+6. Add evidence-reconciliation on top of the extraction path only after the trust boundary is stable.
 
 ## Intended Repository Shape
 
@@ -139,12 +139,13 @@ The current implementation covers:
 16. front-door requirement capture and draft-topology intake tools
 17. explicit dependency-ordered multi-worker orchestration on the review path
 18. document-provenanced SCN-05 candidate-fact drafts with explicit confirmation/promotion
+19. a document-assisted extraction helper that feeds directly into the SCN-05 draft path
 
 The current framework maturity is:
 
 1. plugin boot flow, runtime kernel, tool registry, and one pre-execution readiness guard are implemented
 2. tool-driven validation, artifact generation, review summary, workflow launch, `SCN-04` acceptance, requirement capture, and draft-topology intake are implemented end to end
-3. the review workflow now runs through explicit multi-worker orchestration on the existing coordinator substrate, and the SCN-05 candidate-fact draft/promote path is now implemented without autonomous extraction
+3. the review workflow now runs through explicit multi-worker orchestration on the existing coordinator substrate, and the SCN-05 path now includes document-assisted extraction, candidate-fact drafting, and explicit confirmation/promotion
 
 ## Current Agent / Orchestration Status
 
@@ -155,11 +156,11 @@ The branch now has four concrete runtime roles in the first review workflow:
 3. `src/workers/solution-review-assistant/worker.ts` runs the dependency-ordered review-assistant worker.
 4. `src/agents/solution-review-assistant.ts` runs the review-assistant child agent.
 
-That means the codebase now has an explicit multi-worker review path and a document-provenanced candidate-fact draft/promote path, but still only one formal `src/agents/` agent module today. Autonomous document extraction and external integration layers are still not implemented.
+That means the codebase now has an explicit multi-worker review path, a document-assisted extraction helper, and a document-provenanced candidate-fact draft/promote path, but still only one formal `src/agents/` agent module today. Broader evidence reconciliation and external integration layers are still not implemented.
 
 The roadmap MVP done criteria are now satisfied on this branch.
 
 The next development focus is now the remaining post-MVP work:
 
-1. land the actual document-assisted extraction helper on top of the new SCN-05 candidate-fact path without weakening the trust boundary
+1. add an evidence-reconciliation worker on top of the extraction path
 2. add MCP / external-system integrations only after the extraction path is stable
