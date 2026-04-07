@@ -67,6 +67,21 @@ function requiresDeviceInventory(input: CloudSolutionSliceInput): boolean {
     || input.links.length > 0
 }
 
+function hasDocumentDerivedUnconfirmedFacts(input: CloudSolutionSliceInput): boolean {
+  const documentKinds = new Set(["document", "diagram", "image"])
+  const hasDocumentSources = (sourceRefs: CloudSolutionSliceInput["devices"][number]["sourceRefs"]) =>
+    sourceRefs.some((sourceRef) => documentKinds.has(sourceRef.kind))
+
+  return [
+    ...input.devices,
+    ...input.racks,
+    ...input.ports,
+    ...input.links,
+    ...input.segments,
+    ...input.allocations,
+  ].some((item) => item.statusConfidence !== "confirmed" && hasDocumentSources(item.sourceRefs))
+}
+
 export const QUESTION_TEMPLATES: QuestionTemplate[] = [
   {
     id: "devices-missing",
@@ -138,6 +153,14 @@ export const QUESTION_TEMPLATES: QuestionTemplate[] = [
     question: "设备建议双归属，但当前链路不足，建议补充或确认这是可接受的降级设计",
     severity: "warning",
     suggestion: "确认是否接受当前冗余不足，或补充第二条独立链路",
+  },
+  {
+    id: "document-assisted-facts-unconfirmed",
+    trigger: (input) => hasDocumentDerivedUnconfirmedFacts(input),
+    field: "documentAssist.candidateFacts",
+    question: "文档提取候选事实尚未确认，请确认需要保留的候选实体后再继续导出。",
+    severity: "warning",
+    suggestion: "在 draft_topology_model 中通过 confirmation.entityRefs 显式确认候选实体后重新运行 review workflow。",
   },
 ]
 

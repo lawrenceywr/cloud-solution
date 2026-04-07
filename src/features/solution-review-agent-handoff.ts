@@ -7,6 +7,11 @@ import {
   type WorkerResult,
   type WorkerRuntimeContext,
 } from "../coordinator"
+import type {
+  CandidateFact,
+  CandidateFactConfirmationSummary,
+  DraftInputState,
+} from "../domain"
 import {
   buildSolutionReviewAgentBrief,
   runSolutionReviewAssistant,
@@ -15,6 +20,7 @@ import {
   type SolutionReviewAssistantExecutionResult,
   type SolutionReviewAgentResponse,
 } from "../agents"
+import { prepareDraftSolutionInput } from "../normalizers"
 import type {
   BackgroundSolutionReviewNextAction,
   BackgroundSolutionReviewWorkflowResult,
@@ -34,6 +40,9 @@ import {
 } from "./solution-review-workflow"
 
 export type SolutionReviewAgentHandoff = BackgroundSolutionReviewWorkflowResult & {
+  inputState: DraftInputState
+  candidateFacts: CandidateFact[]
+  confirmationSummary: CandidateFactConfirmationSummary
   clarificationSummary: ClarificationSummary
   agentBrief: SolutionReviewAgentBrief
   agentResponse: SolutionReviewAgentResponse
@@ -48,6 +57,23 @@ const SolutionReviewAssistantWorkerOutputSchema = z.object({
   finalResponse: z.string(),
   nextActions: z.array(z.string()),
 })
+
+function deriveFailedInputState(input: unknown): DraftInputState {
+  if (typeof input !== "object" || input === null) {
+    return "confirmed_slice"
+  }
+
+  const record = input as Record<string, unknown>
+  if ("documentAssist" in record || "confirmation" in record) {
+    return "candidate_fact_draft"
+  }
+
+  if ("structuredInput" in record) {
+    return "structured_input"
+  }
+
+  return "confirmed_slice"
+}
 
 const emptyClarificationSummary: ClarificationSummary = {
   missingFields: [],
@@ -311,8 +337,12 @@ export async function runSolutionReviewAgentHandoff(args: {
   runtime: WorkerRuntimeContext
 }): Promise<SolutionReviewAgentHandoff> {
   try {
-    const workflow = runSolutionReviewWorkflow({
+    const preparedInput = prepareDraftSolutionInput({
       input: args.input,
+      allowDocumentAssist: args.pluginConfig.allow_document_assist,
+    })
+    const workflow = runSolutionReviewWorkflow({
+      input: preparedInput.normalizedInput,
       mode: "export",
       pluginConfig: args.pluginConfig,
       includeBundleWhenNotExportReady: false,
@@ -357,6 +387,9 @@ export async function runSolutionReviewAgentHandoff(args: {
 
     return {
       ...workflowResult,
+      inputState: preparedInput.inputState,
+      candidateFacts: preparedInput.candidateFacts,
+      confirmationSummary: preparedInput.confirmationSummary,
       clarificationSummary,
       agentBrief,
       agentResponse,
@@ -390,6 +423,14 @@ export async function runSolutionReviewAgentHandoff(args: {
 
     return {
       ...failedWorkflow,
+      inputState: deriveFailedInputState(args.input),
+      candidateFacts: [],
+      confirmationSummary: {
+        requestedEntityRefs: [],
+        confirmedEntityRefs: [],
+        pendingEntityRefs: [],
+        missingEntityRefs: [],
+      },
       clarificationSummary: emptyClarificationSummary,
       agentBrief,
       agentResponse,
