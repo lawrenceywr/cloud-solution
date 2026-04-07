@@ -762,6 +762,47 @@ export function createScn05DocumentAssistedDraftFixture() {
   }
 }
 
+export function createScn05DocumentExtractionInputFixture() {
+  const draftFixture = createScn05DocumentAssistedDraftFixture()
+
+  return {
+    requirement: draftFixture.requirement,
+    documentAssist: {
+      documentSources: draftFixture.documentAssist.documentSources,
+      candidateFacts: {
+        racks: [],
+        devices: [],
+        links: [],
+        segments: [],
+        allocations: [],
+      },
+    },
+  }
+}
+
+export function createScn05ExtractedCandidateFactsFixture(documentSources?: Array<{
+  kind: "document" | "diagram" | "image"
+  ref: string
+  note?: string
+}>) {
+  const draftFixture = createScn05DocumentAssistedDraftFixture()
+  const sourceRefs = documentSources ?? draftFixture.documentAssist.documentSources
+
+  return {
+    racks: [],
+    devices: [],
+    links: [],
+    segments: draftFixture.documentAssist.candidateFacts.segments.map((segment) => ({
+      ...segment,
+      sourceRefs,
+    })),
+    allocations: draftFixture.documentAssist.candidateFacts.allocations.map((allocation) => ({
+      ...allocation,
+      sourceRefs,
+    })),
+  }
+}
+
 export function createScn05PromotedDocumentAssistFixture() {
   return {
     ...createScn05DocumentAssistedDraftFixture(),

@@ -93,7 +93,10 @@ export function createCaptureSolutionRequirementsTools(args: {
                   },
                 }),
           },
-          nextAction: "draft_topology_model",
+          nextAction:
+            parsedInput.documentSources.length > 0
+              ? "extract_document_candidate_facts"
+              : "draft_topology_model",
         },
         null,
         2,
