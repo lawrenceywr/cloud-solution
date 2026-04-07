@@ -2,7 +2,7 @@
 
 Status: completed.
 
-This post-MVP slice is now complete: `SCN-04`, the front-door intake tools, explicit multi-worker review orchestration, and the first `SCN-05` candidate-fact/confirmation path have all landed. The next remaining post-MVP work needs a fresh plan around autonomous document-assisted extraction and later MCP / external integrations.
+This post-MVP slice is now complete: `SCN-04`, the front-door intake tools, explicit multi-worker review orchestration, the first `SCN-05` candidate-fact/confirmation path, and the document-assisted extraction helper have all landed. The next remaining post-MVP work needs a fresh plan around evidence reconciliation and later MCP / external integrations.
 
 ## Scope
 
@@ -12,11 +12,12 @@ In scope:
 - add `capture_solution_requirements` and `draft_topology_model` as the first front-door intake tools
 - route the review workflow through explicit dependency-ordered multi-worker orchestration
 - land the first `SCN-05` document-provenanced candidate-fact and confirmation flow
+- land the document-assisted extraction helper that feeds directly into the SCN-05 draft path
 - update planning/progress docs after those slices land
 
 Out of scope:
 
-- multimodal extraction
+- autonomous high-confidence multimodal topology inference
 - vendor-specific logic packs
 
 ## File Map
@@ -76,6 +77,7 @@ Out of scope:
 - [x] dependency-ordered multi-worker review orchestration landed
 - [x] SCN-05 document-provenanced candidate-fact draft flow landed
 - [x] explicit confirmation/promote flow landed
+- [x] document-assisted extraction helper landed
 - [x] progress docs updated after the slice landed
 
 ## Acceptance for This Stage
@@ -86,4 +88,5 @@ Out of scope:
 - the review workflow exposes deterministic worker ordering while preserving the stable public handoff contract
 - SCN-05 candidate facts remain non-confirmed until explicit confirmation and cannot reach export-ready directly
 - explicit confirmations can promote selected candidate facts into a confirmed export-ready slice
+- `extract_document_candidate_facts` feeds directly into `draft_topology_model` and keeps extracted facts at inferred/unresolved confidence only
 - targeted tests, full tests, typecheck, and build pass

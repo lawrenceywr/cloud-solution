@@ -7,7 +7,7 @@ This backlog converts the roadmap into an ordered implementation list.
 - Validate before generating artifacts.
 - Model facts explicitly before introducing convenience tools.
 - Keep each slice deterministic and independently testable.
-- Do not add multimodal extraction, rack/port/link modeling, or background orchestration until the current trust-center slice is stable.
+- Do not let extraction bypass the candidate-fact and confirmation trust boundary.
 
 ## Current Stage
 
@@ -42,13 +42,13 @@ Framework status right now:
 
 1. the plugin boot flow, runtime kernel, tool registry, and basic readiness guard are implemented
 2. deterministic model/artifact/review tools plus a first workflow launcher are implemented and verified end to end
-3. `src/features/` now contains deterministic review/export coordination and one orchestration launcher, `src/workers/` now contains explicit clarification and review-assistant workers, and `src/agents/` now contains a first actual review assistant
-4. `src/coordinator/` now provides child-session execution, dependency-ordered worker dispatch, and explicit worker-to-worker message passing for the live review workflow
+3. `src/features/` now contains deterministic review/export coordination and one orchestration launcher, `src/workers/` now contains explicit clarification, extraction, and review-assistant workers, and `src/agents/` now contains a first actual review assistant
+4. `src/coordinator/` now provides child-session execution, dependency-ordered worker dispatch, and explicit worker-to-worker message passing for the live review workflow, while the extraction tool feeds document-assisted candidate facts into the existing SCN-05 draft path
 
 Active next focus:
 
-1. define the next post-MVP slice around `SCN-05` candidate-fact extraction
-2. defer MCP / external integrations until the candidate-fact path is stable
+1. add an evidence-reconciliation worker on top of the new extraction path
+2. defer MCP / external integrations until the extraction path is stable
 
 ## Progress Table
 
@@ -76,6 +76,9 @@ Active next focus:
 | BL-020 | completed | `SCN-04` now has fixture coverage, cloud validation depth, and acceptance coverage through validation/artifact/export surfaces. |
 | BL-021 | completed | `capture_solution_requirements` and `draft_topology_model` now provide the first front-door intake layer without weakening confirmed-only artifact gating. |
 | BL-022 | completed | The review workflow now runs through explicit multi-worker orchestration with dependency ordering and worker-to-worker message passing. |
+| BL-023 | completed | `SCN-05` now supports document-provenanced candidate-fact drafts that stay inferred/unresolved until explicitly confirmed. |
+| BL-024 | completed | `draft_topology_model` and `start_solution_review_workflow` now support explicit confirmation/promote flow and expose draft-vs-confirmed input state. |
+| BL-025 | completed | `extract_document_candidate_facts` now provides a real document-assisted extraction helper that feeds directly into the SCN-05 draft path. |
 
 ## Ordered Backlog
 
@@ -322,7 +325,18 @@ Active next focus:
   - `start_solution_review_workflow` distinguishes structured input, candidate-fact draft, and confirmed slice inputs
   - review/export only become export-ready after confirmed data is supplied
 
+### BL-025 - Add the document-assisted extraction helper [completed]
+
+- **Goal**: turn local document/image/diagram sources into candidate facts that feed directly into the existing SCN-05 draft path
+- **Depends on**: `BL-023`, `BL-024`
+- **Source docs**: `docs/scenarios.md`, `docs/architecture.md`
+- **Acceptance**:
+  - `extract_document_candidate_facts` is registered and invokable through the runtime kernel
+  - extraction output returns `draftInput` shaped for `draft_topology_model`
+  - extracted candidate facts carry document/image/diagram source refs and never return as confirmed
+  - extraction -> draft -> review remains blocked until explicit confirmation
+
 ## Not Scheduled Yet
 
-- autonomous document-assisted extraction helper
+- evidence-reconciliation worker
 - external system integrations
