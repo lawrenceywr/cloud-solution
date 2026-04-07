@@ -219,3 +219,16 @@ export function createDraftTopologyModelArgs(): ToolDefinition["args"] {
       .describe("Optional explicit confirmation step that promotes selected candidate facts to confirmed."),
   }
 }
+
+export function createExtractDocumentCandidateFactsArgs(): ToolDefinition["args"] {
+  const documentAssistSchema = createDocumentAssistSchema()
+
+  return {
+    requirement: createRequirementSchema().describe(
+      "Captured or supplied requirement that the extracted candidate facts belong to.",
+    ),
+    documentAssist: documentAssistSchema.describe(
+      "Document/image/diagram sources plus an empty candidate-fact scaffold to populate via extraction.",
+    ),
+  }
+}

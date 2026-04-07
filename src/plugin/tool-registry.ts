@@ -6,6 +6,7 @@ import {
   createDescribeCloudSolutionTools,
   createDraftTopologyModelTools,
   createExportArtifactBundleTools,
+  createExtractDocumentCandidateFactsTools,
   createGenerateDeviceCablingTableTools,
   createGenerateDevicePortPlanTools,
   createGenerateIpAllocationTableTools,
@@ -35,6 +36,10 @@ export function createToolRegistry(args: {
     }),
     ...createDraftTopologyModelTools({
       pluginConfig,
+    }),
+    ...createExtractDocumentCandidateFactsTools({
+      pluginConfig,
+      context,
     }),
     ...createExportArtifactBundleTools({
       pluginConfig,
