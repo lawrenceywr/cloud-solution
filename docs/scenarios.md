@@ -168,4 +168,4 @@ These scenarios should be treated as the source of truth for early tests and sna
 
 - `SCN-01` to `SCN-03` mainly drive later physical connectivity slices.
 - `SCN-04` is the current cloud-oriented acceptance anchor for the IP allocation path.
-- `SCN-05` is now implemented as a document-provenanced candidate-fact and explicit confirmation slice; autonomous extraction remains future work.
+- `SCN-05` is now implemented through document-assisted extraction, candidate-fact drafting, and explicit confirmation; broader evidence reconciliation remains future work.

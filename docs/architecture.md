@@ -284,10 +284,10 @@ Renderers must remain pure and consume row schemas only.
 
 ### 6.5 Later Agent/Skill Modules
 
-The clarification/review path is already landed through the current requirements-clarification worker, review-assistant worker, and solution-review assistant child agent. Additional agent/skill modules should still wait until the core model is stable:
+The clarification/review path and the document-assisted extraction helper are already landed. Additional agent/skill modules should still wait until the core model is stable:
 
 - artifact explanation assistant
-- document-assisted extraction helper
+- evidence-reconciliation worker
 
 ## 7. MVP Boundary
 

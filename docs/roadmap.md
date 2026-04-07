@@ -115,11 +115,11 @@ Exit criteria:
 - an OpenCode session can run the end-to-end draft flow
 - low-confidence cases trigger review rather than silent export
 
-## Phase 7 - Assisted Extraction and Workflow Expansion
+## Phase 7 - Extraction Expansion and Workflow Expansion
 
 Build:
 
-- multimodal-assisted document extraction
+- evidence reconciliation on top of the landed document-assisted extraction helper
 - optional background review workflows
 - optional adjacent agents and skills
 
@@ -127,6 +127,7 @@ Exit criteria:
 
 - extraction outputs are clearly marked as candidate facts
 - user confirmation flow is in place
+- extracted facts remain non-confirmed until explicit promotion
 
 ## 4. Suggested Work Tracks
 
@@ -202,7 +203,7 @@ The MVP is done when:
 7. markdown renderer
 8. plugin tool integration
 
-Do not start with agents or multimodal automation.
+Do not start with agents or autonomous multimodal automation.
 
 ## 11. Execution Docs
 
