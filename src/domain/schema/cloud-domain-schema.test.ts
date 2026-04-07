@@ -2,8 +2,11 @@ import { describe, expect, test } from "bun:test"
 
 import {
   ArtifactBundleExportSchema,
+  CandidateFactConfirmationSummarySchema,
+  CandidateFactSchema,
   CloudSolutionSliceInputSchema,
   CloudSolutionModelSchema,
+  DraftInputStateSchema,
   DesignGapSummarySchema,
   DesignReviewItemRowSchema,
   DeviceCablingTableRowSchema,
@@ -205,6 +208,34 @@ describe("cloud domain schemas", () => {
 
     expect(assumptionRow.kind).toBe("assumption")
     expect(gapRow.severity).toBe("blocking")
+  })
+
+  test("accepts candidate fact summaries and confirmation summaries", () => {
+    const inputState = DraftInputStateSchema.parse("candidate_fact_draft")
+    const candidateFact = CandidateFactSchema.parse({
+      entityRef: "segment:segment-a",
+      subjectType: "segment",
+      subjectId: "segment-a",
+      statusConfidence: "inferred",
+      sourceRefs: [
+        {
+          kind: "document",
+          ref: "docs/network-diagram.pdf",
+          note: "Extracted from supporting document",
+        },
+      ],
+      requiresConfirmation: true,
+    })
+    const confirmationSummary = CandidateFactConfirmationSummarySchema.parse({
+      requestedEntityRefs: ["segment:segment-a"],
+      confirmedEntityRefs: [],
+      pendingEntityRefs: ["segment:segment-a"],
+      missingEntityRefs: [],
+    })
+
+    expect(inputState).toBe("candidate_fact_draft")
+    expect(candidateFact.sourceRefs[0]?.kind).toBe("document")
+    expect(confirmationSummary.pendingEntityRefs).toEqual(["segment:segment-a"])
   })
 
   test("accepts validation, review, and bundle export summaries", () => {

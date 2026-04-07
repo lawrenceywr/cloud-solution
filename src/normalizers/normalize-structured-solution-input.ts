@@ -5,14 +5,14 @@ import {
   SolutionRequirementSchema,
 } from "../domain"
 
-const StructuredConfidenceStateSchema = z.enum([
+export const StructuredConfidenceStateSchema = z.enum([
   "confirmed",
   "inferred",
   "unresolved",
 ])
 
-const StructuredSourceReferenceSchema = z.object({
-  kind: z.enum(["user-input", "inventory", "diagram", "document", "system"]),
+export const StructuredSourceReferenceSchema = z.object({
+  kind: z.enum(["user-input", "inventory", "diagram", "document", "image", "system"]),
   ref: z.string(),
   note: z.string().optional(),
 })

@@ -14,9 +14,44 @@ export const ArtifactTypeSchema = z.enum([
 ])
 
 export const SourceReferenceSchema = z.object({
-  kind: z.enum(["user-input", "inventory", "diagram", "document", "system"]),
+  kind: z.enum(["user-input", "inventory", "diagram", "document", "image", "system"]),
   ref: z.string(),
   note: z.string().optional(),
+})
+
+export const DraftInputStateSchema = z.enum([
+  "structured_input",
+  "candidate_fact_draft",
+  "confirmed_slice",
+])
+
+export const CandidateFactSubjectTypeSchema = z.enum([
+  "device",
+  "rack",
+  "port",
+  "link",
+  "segment",
+  "allocation",
+])
+
+export const CandidateFactSchema = z.object({
+  entityRef: z.string(),
+  subjectType: CandidateFactSubjectTypeSchema,
+  subjectId: z.string(),
+  statusConfidence: ConfidenceStateSchema,
+  sourceRefs: z.array(SourceReferenceSchema).default([]),
+  requiresConfirmation: z.boolean(),
+})
+
+export const CandidateFactPromotionSchema = z.object({
+  entityRef: z.string(),
+})
+
+export const CandidateFactConfirmationSummarySchema = z.object({
+  requestedEntityRefs: z.array(z.string()).default([]),
+  confirmedEntityRefs: z.array(z.string()).default([]),
+  pendingEntityRefs: z.array(z.string()).default([]),
+  missingEntityRefs: z.array(z.string()).default([]),
 })
 
 export const SolutionRequirementSchema = z.object({
@@ -335,7 +370,11 @@ export const SUPPORTED_ENTITY_KINDS = [
 
 export type ArtifactType = z.infer<typeof ArtifactTypeSchema>
 export type ConfidenceState = z.infer<typeof ConfidenceStateSchema>
+export type DraftInputState = z.infer<typeof DraftInputStateSchema>
 export type SourceReference = z.infer<typeof SourceReferenceSchema>
+export type CandidateFact = z.infer<typeof CandidateFactSchema>
+export type CandidateFactPromotion = z.infer<typeof CandidateFactPromotionSchema>
+export type CandidateFactConfirmationSummary = z.infer<typeof CandidateFactConfirmationSummarySchema>
 export type SolutionRequirement = z.infer<typeof SolutionRequirementSchema>
 export type CloudSolutionSliceInput = z.infer<typeof CloudSolutionSliceInputSchema>
 export type Device = z.infer<typeof DeviceSchema>
