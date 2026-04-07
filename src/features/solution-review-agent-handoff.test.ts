@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test"
 
-import { createScn01SingleRackConnectivityFixture } from "../scenarios/fixtures"
+import {
+  createScn01SingleRackConnectivityFixture,
+  createScn05DocumentAssistedDraftFixture,
+  createScn05PromotedDocumentAssistFixture,
+} from "../scenarios/fixtures"
 import { loadPluginConfig } from "../plugin-config"
 import { createFakeCoordinatorClient } from "../test-helpers/fake-coordinator-client"
 import { runSolutionReviewAgentHandoff } from "./solution-review-agent-handoff"
@@ -56,6 +60,14 @@ describe("runSolutionReviewAgentHandoff", () => {
       "requirements-clarification",
       "solution-review-assistant",
     ])
+    expect(result.inputState).toBe("confirmed_slice")
+    expect(result.candidateFacts).toEqual([])
+    expect(result.confirmationSummary).toEqual({
+      requestedEntityRefs: [],
+      confirmedEntityRefs: [],
+      pendingEntityRefs: [],
+      missingEntityRefs: [],
+    })
     expect(result.orchestrationState).toBe("export_ready")
     expect(result.workflowState).toBe("export_ready")
     expect(result.transitions).toEqual(["queued", "running", "export_ready"])
@@ -370,5 +382,142 @@ describe("runSolutionReviewAgentHandoff", () => {
     expect(result.finalResponse).toBe(result.agentResponse.response)
     expect(result.nextActions).toEqual(["inspect_failure"])
     expect(result.nextActions).toEqual(result.agentResponse.checklist)
+  })
+
+  test("surfaces candidate-fact draft metadata for SCN-05 document-assisted review input", async () => {
+    const pluginConfig = loadPluginConfig(process.cwd())
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "requirements-clarification",
+          status: "success",
+          output: {
+            missingFields: ["documentAssist.candidateFacts"],
+            clarificationQuestions: [
+              {
+                field: "documentAssist.candidateFacts",
+                question: "文档提取候选事实尚未确认，请确认需要保留的候选实体后再继续导出。",
+                severity: "warning",
+                suggestion:
+                  "在 draft_topology_model 中通过 confirmation.entityRefs 显式确认候选实体后重新运行 review workflow。",
+              },
+            ],
+            suggestions: [
+              "在 draft_topology_model 中通过 confirmation.entityRefs 显式确认候选实体后重新运行 review workflow。",
+            ],
+          },
+          recommendations: [
+            "在 draft_topology_model 中通过 confirmation.entityRefs 显式确认候选实体后重新运行 review workflow。",
+          ],
+        }),
+        JSON.stringify({
+          workerId: "solution-review-assistant",
+          status: "success",
+          output: {
+            finalResponse:
+              "Draft candidate facts still require confirmation before export can continue.",
+            nextActions: [
+              "segment:segment-document-public-service",
+              "allocation:allocation-document-public-service-10-50-0-10",
+            ],
+          },
+          recommendations: [
+            "segment:segment-document-public-service",
+            "allocation:allocation-document-public-service-10-50-0-10",
+          ],
+        }),
+      ],
+    })
+
+    const result = await runSolutionReviewAgentHandoff({
+      input: createScn05DocumentAssistedDraftFixture(),
+      pluginConfig,
+      runtime: {
+        client,
+        parentSessionID: "handoff-parent-session",
+        agent: "cloud-solution-test",
+        directory: process.cwd(),
+        worktree: process.cwd(),
+        abort: new AbortController().signal,
+      },
+    })
+
+    expect(result.inputState).toBe("candidate_fact_draft")
+    expect(result.candidateFacts).toEqual([
+      expect.objectContaining({
+        entityRef: "allocation:allocation-document-public-service-10-50-0-10",
+        requiresConfirmation: true,
+      }),
+      expect.objectContaining({
+        entityRef: "segment:segment-document-public-service",
+        requiresConfirmation: true,
+      }),
+    ])
+    expect(result.confirmationSummary.pendingEntityRefs).toEqual([
+      "allocation:allocation-document-public-service-10-50-0-10",
+      "segment:segment-document-public-service",
+    ])
+    expect(result.orchestrationState).toBe("blocked")
+    expect(result.clarificationSummary.nonBlockingQuestions).toContainEqual(
+      expect.objectContaining({
+        field: "documentAssist.candidateFacts",
+      }),
+    )
+  })
+
+  test("treats fully confirmed SCN-05 document-assisted input as a confirmed slice", async () => {
+    const pluginConfig = loadPluginConfig(process.cwd())
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "requirements-clarification",
+          status: "success",
+          output: {
+            missingFields: [],
+            clarificationQuestions: [],
+            suggestions: [],
+          },
+          recommendations: ["输入完整，无需澄清"],
+        }),
+        JSON.stringify({
+          workerId: "solution-review-assistant",
+          status: "success",
+          output: {
+            finalResponse:
+              "The workflow is export-ready; use the bundled artifacts as the final reviewed output.",
+            nextActions: ["export_bundle", "artifact-bundle-index.md"],
+          },
+          recommendations: ["export_bundle", "artifact-bundle-index.md"],
+        }),
+      ],
+    })
+
+    const result = await runSolutionReviewAgentHandoff({
+      input: createScn05PromotedDocumentAssistFixture(),
+      pluginConfig,
+      runtime: {
+        client,
+        parentSessionID: "handoff-parent-session",
+        agent: "cloud-solution-test",
+        directory: process.cwd(),
+        worktree: process.cwd(),
+        abort: new AbortController().signal,
+      },
+    })
+
+    expect(result.inputState).toBe("confirmed_slice")
+    expect(result.confirmationSummary.confirmedEntityRefs).toEqual([
+      "allocation:allocation-document-public-service-10-50-0-10",
+      "segment:segment-document-public-service",
+    ])
+    expect(result.confirmationSummary.pendingEntityRefs).toEqual([])
+    expect(result.orchestrationState).toBe("export_ready")
+    expect(result.clarificationSummary).toEqual({
+      missingFields: [],
+      clarificationQuestions: [],
+      blockingQuestions: [],
+      nonBlockingQuestions: [],
+      suggestions: [],
+    })
   })
 })

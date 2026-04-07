@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test"
 
-import { createScn01SingleRackConnectivityFixture } from "./scenarios/fixtures"
+import {
+  createScn01SingleRackConnectivityFixture,
+  createScn05DocumentAssistedDraftFixture,
+  createScn05PromotedDocumentAssistFixture,
+} from "./scenarios/fixtures"
 import { loadPluginConfig } from "./plugin-config"
 import { createManagers } from "./create-managers"
 import { createTools } from "./create-tools"
@@ -166,6 +170,22 @@ function createCaptureRequirementToolInput() {
   }
 }
 
+function createDocumentAssistedCaptureRequirementToolInput() {
+  return {
+    projectName: "Captured Document Intake",
+    scopeType: "cloud" as const,
+    artifactRequests: ["ip-allocation-table"],
+    requirementNotes: "Need a first-pass document-assisted allocation draft.",
+    documentSources: [
+      {
+        kind: "document" as const,
+        ref: "fixtures/captured-supporting-design.pdf",
+        note: "Captured supporting PDF",
+      },
+    ],
+  }
+}
+
 function createDraftTopologyToolInput() {
   return {
     requirement: {
@@ -268,6 +288,74 @@ describe("createTools", () => {
     expect(parsed.nextAction).toBe("draft_topology_model")
   })
 
+  test("capture_solution_requirements seeds a document-assisted draft envelope", async () => {
+    const config = loadPluginConfig(process.cwd())
+    const managers = createManagers({
+      context: { directory: process.cwd() },
+      pluginConfig: config,
+    })
+
+    const tools = createTools({
+      pluginConfig: config,
+      managers,
+    })
+
+    const response = await tools.capture_solution_requirements.execute(
+      createDocumentAssistedCaptureRequirementToolInput(),
+      createTestToolContext({ sessionID: "tool-test-session" }),
+    )
+    const parsed = JSON.parse(response)
+
+    expect(parsed.draftInput.documentAssist.documentSources).toEqual([
+      {
+        kind: "document",
+        ref: "fixtures/captured-supporting-design.pdf",
+        note: "Captured supporting PDF",
+      },
+    ])
+    expect(parsed.draftInput.documentAssist.candidateFacts).toEqual({
+      racks: [],
+      devices: [],
+      links: [],
+      segments: [],
+      allocations: [],
+    })
+    expect(parsed.draftInput).not.toHaveProperty("structuredInput")
+  })
+
+  test("document-assisted capture output roundtrips directly into draft_topology_model", async () => {
+    const config = loadPluginConfig(process.cwd())
+    const managers = createManagers({
+      context: { directory: process.cwd() },
+      pluginConfig: config,
+    })
+
+    const tools = createTools({
+      pluginConfig: config,
+      managers,
+    })
+
+    const captureResponse = await tools.capture_solution_requirements.execute(
+      createDocumentAssistedCaptureRequirementToolInput(),
+      createTestToolContext({ sessionID: "tool-test-session" }),
+    )
+    const captureParsed = JSON.parse(captureResponse)
+    const draftResponse = await tools.draft_topology_model.execute(
+      {
+        ...captureParsed.draftInput,
+        documentAssist: {
+          ...captureParsed.draftInput.documentAssist,
+          candidateFacts: createScn05DocumentAssistedDraftFixture().documentAssist.candidateFacts,
+        },
+      },
+      createTestToolContext({ sessionID: "tool-test-session" }),
+    )
+    const draftParsed = JSON.parse(draftResponse)
+
+    expect(draftParsed.inputState).toBe("candidate_fact_draft")
+    expect(draftParsed.candidateFacts).toHaveLength(2)
+  })
+
   test("registers draft_topology_model tool", async () => {
     const config = loadPluginConfig(process.cwd())
     const managers = createManagers({
@@ -350,6 +438,160 @@ describe("createTools", () => {
         createTestToolContext({ sessionID: "tool-test-session" }),
       ),
     ).rejects.toThrow()
+  })
+
+  test("draft_topology_model returns candidate facts and clarification summary for SCN-05 document-assisted drafts", async () => {
+    const config = loadPluginConfig(process.cwd())
+    const managers = createManagers({
+      context: { directory: process.cwd() },
+      pluginConfig: config,
+    })
+    const tools = createTools({
+      pluginConfig: config,
+      managers,
+    })
+
+    const response = await tools.draft_topology_model.execute(
+      createScn05DocumentAssistedDraftFixture(),
+      createTestToolContext({ sessionID: "tool-test-session" }),
+    )
+    const parsed = JSON.parse(response)
+
+    expect(parsed.inputState).toBe("candidate_fact_draft")
+    expect(parsed.candidateFacts).toEqual([
+      expect.objectContaining({
+        entityRef: "allocation:allocation-document-public-service-10-50-0-10",
+        statusConfidence: "unresolved",
+        requiresConfirmation: true,
+      }),
+      expect.objectContaining({
+        entityRef: "segment:segment-document-public-service",
+        statusConfidence: "inferred",
+        requiresConfirmation: true,
+      }),
+    ])
+    expect(parsed.confirmationSummary).toEqual({
+      requestedEntityRefs: [],
+      confirmedEntityRefs: [],
+      pendingEntityRefs: [
+        "allocation:allocation-document-public-service-10-50-0-10",
+        "segment:segment-document-public-service",
+      ],
+      missingEntityRefs: [],
+    })
+    expect(parsed.clarificationSummary.nonBlockingQuestions).toContainEqual(
+      expect.objectContaining({
+        field: "documentAssist.candidateFacts",
+      }),
+    )
+    expect(parsed.validationSummary.valid).toBe(false)
+    expect(parsed.validationSummary.issues.map((issue: { code: string }) => issue.code)).toContain(
+      "network_fact_not_confirmed",
+    )
+  })
+
+  test("draft_topology_model promotes confirmed SCN-05 entities explicitly", async () => {
+    const config = loadPluginConfig(process.cwd())
+    const managers = createManagers({
+      context: { directory: process.cwd() },
+      pluginConfig: config,
+    })
+    const tools = createTools({
+      pluginConfig: config,
+      managers,
+    })
+
+    const response = await tools.draft_topology_model.execute(
+      createScn05PromotedDocumentAssistFixture(),
+      createTestToolContext({ sessionID: "tool-test-session" }),
+    )
+    const parsed = JSON.parse(response)
+
+    expect(parsed.inputState).toBe("confirmed_slice")
+    expect(parsed.candidateFacts.every((fact: { requiresConfirmation: boolean }) => !fact.requiresConfirmation)).toBe(true)
+    expect(parsed.confirmationSummary).toEqual({
+      requestedEntityRefs: [
+        "allocation:allocation-document-public-service-10-50-0-10",
+        "segment:segment-document-public-service",
+      ],
+      confirmedEntityRefs: [
+        "allocation:allocation-document-public-service-10-50-0-10",
+        "segment:segment-document-public-service",
+      ],
+      pendingEntityRefs: [],
+      missingEntityRefs: [],
+    })
+    expect(parsed.validationSummary.valid).toBe(true)
+    expect(parsed.validationSummary.issues).toEqual([])
+  })
+
+  test("draft_topology_model rejects document-assisted drafts when plugin config disables them", async () => {
+    const config = {
+      ...loadPluginConfig(process.cwd()),
+      allow_document_assist: false,
+    }
+    const managers = createManagers({
+      context: { directory: process.cwd() },
+      pluginConfig: config,
+    })
+    const tools = createTools({
+      pluginConfig: config,
+      managers,
+    })
+
+    await expect(
+      tools.draft_topology_model.execute(
+        createScn05DocumentAssistedDraftFixture(),
+        createTestToolContext({ sessionID: "tool-test-session" }),
+      ),
+    ).rejects.toThrow("Document-assisted drafting is disabled by plugin config.")
+  })
+
+  test("start_solution_review_workflow surfaces mixed canonical and draft input as a failed workflow", async () => {
+    const config = loadPluginConfig(process.cwd())
+    const { client } = createFakeCoordinatorClient()
+    const managers = createManagers({
+      context: {
+        directory: process.cwd(),
+        worktree: process.cwd(),
+        client,
+      },
+      pluginConfig: config,
+    })
+    const tools = createTools({
+      pluginConfig: config,
+      managers,
+      context: {
+        directory: process.cwd(),
+        worktree: process.cwd(),
+        client,
+      },
+    })
+
+    const response = await tools.start_solution_review_workflow.execute(
+      {
+        ...createScn05DocumentAssistedDraftFixture(),
+        segments: [
+          {
+            id: "segment-mixed",
+            name: "mixed",
+            segmentType: "service",
+            cidr: "10.99.0.0/24",
+            gateway: "10.99.0.1",
+            purpose: "mixed",
+            sourceRefs: [],
+            statusConfidence: "confirmed",
+          },
+        ],
+      },
+      createTestToolContext({ sessionID: "tool-test-session" }),
+    )
+    const parsed = JSON.parse(response)
+
+    expect(parsed.orchestrationState).toBe("failed")
+    expect(parsed.inputState).toBe("candidate_fact_draft")
+    expect(parsed.nextAction).toBe("inspect_failure")
+    expect(parsed.finalResponse).toContain("failed")
   })
 
   test("registers generate_ip_allocation_table tool", async () => {

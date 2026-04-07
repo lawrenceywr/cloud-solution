@@ -702,3 +702,74 @@ export function createScn04CloudNetworkAllocationFixture(): CloudSolutionSliceIn
     ],
   }
 }
+
+export function createScn05DocumentAssistedDraftFixture() {
+  return {
+    requirement: {
+      id: "req-scn-05",
+      projectName: "SCN-05 Document Assisted Drafting",
+      scopeType: "cloud" as const,
+      artifactRequests: ["ip-allocation-table" as const],
+      sourceRefs: [
+        {
+          kind: "user-input" as const,
+          ref: "capture_solution_requirements",
+          note: "Document-assisted drafting example",
+        },
+      ],
+      statusConfidence: "confirmed" as const,
+    },
+    documentAssist: {
+      documentSources: [
+        {
+          kind: "document" as const,
+          ref: "fixtures/scn-05-supporting-design.pdf",
+          note: "Supporting network design PDF",
+        },
+        {
+          kind: "diagram" as const,
+          ref: "fixtures/scn-05-topology-diagram.drawio",
+          note: "Attached topology diagram",
+        },
+      ],
+      candidateFacts: {
+        racks: [],
+        devices: [],
+        links: [],
+        segments: [
+          {
+            name: "Document Public Service",
+            segmentType: "service" as const,
+            cidr: "10.50.0.0/24",
+            gateway: "10.50.0.1",
+            purpose: "document-public-service",
+            statusConfidence: "inferred" as const,
+          },
+        ],
+        allocations: [
+          {
+            segmentName: "Document Public Service",
+            allocationType: "service" as const,
+            ipAddress: "10.50.0.10",
+            hostname: "document-api",
+            interfaceName: "eni-document",
+            purpose: "document-api",
+            statusConfidence: "unresolved" as const,
+          },
+        ],
+      },
+    },
+  }
+}
+
+export function createScn05PromotedDocumentAssistFixture() {
+  return {
+    ...createScn05DocumentAssistedDraftFixture(),
+    confirmation: {
+      entityRefs: [
+        "segment:segment-document-public-service",
+        "allocation:allocation-document-public-service-10-50-0-10",
+      ],
+    },
+  }
+}

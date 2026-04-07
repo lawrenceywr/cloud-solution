@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test"
 
 import { createCloudSolutionRuntime } from "./index"
-import { createScn01SingleRackConnectivityFixture } from "./scenarios/fixtures"
+import {
+  createScn01SingleRackConnectivityFixture,
+  createScn05DocumentAssistedDraftFixture,
+  createScn05PromotedDocumentAssistFixture,
+} from "./scenarios/fixtures"
 import { createFakeCoordinatorClient } from "./test-helpers/fake-coordinator-client"
 
 function createPhysicalRuntimeInput() {
@@ -299,6 +303,98 @@ describe("createCloudSolutionRuntime", () => {
         },
       }),
     ).rejects.toThrow()
+  })
+
+  test("returns candidate facts and clarification summary for SCN-05 document-assisted drafts at runtime", async () => {
+    const runtime = createCloudSolutionRuntime(process.cwd())
+
+    const result = await runtime.kernel.invokeTool({
+      toolName: "draft_topology_model",
+      sessionID: "runtime-scn05-draft-session",
+      args: createScn05DocumentAssistedDraftFixture(),
+    })
+    const parsed = JSON.parse(result)
+
+    expect(parsed.inputState).toBe("candidate_fact_draft")
+    expect(parsed.candidateFacts).toEqual([
+      expect.objectContaining({
+        entityRef: "allocation:allocation-document-public-service-10-50-0-10",
+        statusConfidence: "unresolved",
+        requiresConfirmation: true,
+      }),
+      expect.objectContaining({
+        entityRef: "segment:segment-document-public-service",
+        statusConfidence: "inferred",
+        requiresConfirmation: true,
+      }),
+    ])
+    expect(parsed.confirmationSummary.pendingEntityRefs).toEqual([
+      "allocation:allocation-document-public-service-10-50-0-10",
+      "segment:segment-document-public-service",
+    ])
+    expect(parsed.clarificationSummary.nonBlockingQuestions).toContainEqual(
+      expect.objectContaining({
+        field: "documentAssist.candidateFacts",
+      }),
+    )
+    expect(parsed.validationSummary.valid).toBe(false)
+  })
+
+  test("promotes SCN-05 candidate facts to a confirmed slice at runtime", async () => {
+    const runtime = createCloudSolutionRuntime(process.cwd())
+
+    const result = await runtime.kernel.invokeTool({
+      toolName: "draft_topology_model",
+      sessionID: "runtime-scn05-promoted-session",
+      args: createScn05PromotedDocumentAssistFixture(),
+    })
+    const parsed = JSON.parse(result)
+
+    expect(parsed.inputState).toBe("confirmed_slice")
+    expect(parsed.confirmationSummary.confirmedEntityRefs).toEqual([
+      "allocation:allocation-document-public-service-10-50-0-10",
+      "segment:segment-document-public-service",
+    ])
+    expect(parsed.confirmationSummary.pendingEntityRefs).toEqual([])
+    expect(parsed.validationSummary.valid).toBe(true)
+    expect(parsed.validationSummary.issues).toEqual([])
+  })
+
+  test("document-assisted capture output roundtrips into draft_topology_model at runtime", async () => {
+    const runtime = createCloudSolutionRuntime(process.cwd())
+
+    const captureResult = await runtime.kernel.invokeTool({
+      toolName: "capture_solution_requirements",
+      sessionID: "runtime-scn05-capture-roundtrip",
+      args: {
+        projectName: "Runtime Document Capture",
+        scopeType: "cloud",
+        artifactRequests: ["ip-allocation-table"],
+        documentSources: [
+          {
+            kind: "document",
+            ref: "fixtures/runtime-roundtrip-supporting.pdf",
+            note: "Runtime roundtrip supporting doc",
+          },
+        ],
+      },
+    })
+    const captureParsed = JSON.parse(captureResult)
+    const draftResult = await runtime.kernel.invokeTool({
+      toolName: "draft_topology_model",
+      sessionID: "runtime-scn05-capture-roundtrip-draft",
+      args: {
+        ...captureParsed.draftInput,
+        documentAssist: {
+          ...captureParsed.draftInput.documentAssist,
+          candidateFacts: createScn05DocumentAssistedDraftFixture().documentAssist.candidateFacts,
+        },
+      },
+    })
+    const draftParsed = JSON.parse(draftResult)
+
+    expect(draftParsed.inputState).toBe("candidate_fact_draft")
+    expect(draftParsed.candidateFacts).toHaveLength(2)
   })
 
   test("invokes the validation slice through the runtime kernel", async () => {
@@ -769,6 +865,158 @@ describe("createCloudSolutionRuntime", () => {
       nonBlockingQuestions: [],
       suggestions: [],
     })
+  })
+
+  test("keeps SCN-05 document-assisted drafts out of export-ready until confirmation", async () => {
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "requirements-clarification",
+          status: "success",
+          output: {
+            missingFields: ["documentAssist.candidateFacts"],
+            clarificationQuestions: [
+              {
+                field: "documentAssist.candidateFacts",
+                question: "文档提取候选事实尚未确认，请确认需要保留的候选实体后再继续导出。",
+                severity: "warning",
+                suggestion:
+                  "在 draft_topology_model 中通过 confirmation.entityRefs 显式确认候选实体后重新运行 review workflow。",
+              },
+            ],
+            suggestions: [
+              "在 draft_topology_model 中通过 confirmation.entityRefs 显式确认候选实体后重新运行 review workflow。",
+            ],
+          },
+          recommendations: [
+            "在 draft_topology_model 中通过 confirmation.entityRefs 显式确认候选实体后重新运行 review workflow。",
+          ],
+        }),
+        JSON.stringify({
+          workerId: "solution-review-assistant",
+          status: "success",
+          output: {
+            finalResponse:
+              "Draft candidate facts still require confirmation before export can continue.",
+            nextActions: [
+              "segment:segment-document-public-service",
+              "allocation:allocation-document-public-service-10-50-0-10",
+            ],
+          },
+          recommendations: [
+            "segment:segment-document-public-service",
+            "allocation:allocation-document-public-service-10-50-0-10",
+          ],
+        }),
+      ],
+    })
+    const runtime = createCloudSolutionRuntime(process.cwd(), {
+      worktree: process.cwd(),
+      client,
+    })
+
+    const result = await runtime.kernel.invokeTool({
+      toolName: "start_solution_review_workflow",
+      sessionID: "runtime-scn05-draft-session",
+      args: createScn05DocumentAssistedDraftFixture(),
+    })
+    const parsed = JSON.parse(result)
+
+    expect(parsed.inputState).toBe("candidate_fact_draft")
+    expect(parsed.orchestrationState).toBe("blocked")
+    expect(parsed.candidateFacts).toEqual([
+      expect.objectContaining({ entityRef: "allocation:allocation-document-public-service-10-50-0-10" }),
+      expect.objectContaining({ entityRef: "segment:segment-document-public-service" }),
+    ])
+    expect(parsed.confirmationSummary.pendingEntityRefs).toEqual([
+      "allocation:allocation-document-public-service-10-50-0-10",
+      "segment:segment-document-public-service",
+    ])
+    expect(parsed.clarificationSummary.nonBlockingQuestions).toContainEqual(
+      expect.objectContaining({
+        field: "documentAssist.candidateFacts",
+      }),
+    )
+  })
+
+  test("treats promoted SCN-05 document-assisted input as a confirmed export-ready slice", async () => {
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "requirements-clarification",
+          status: "success",
+          output: {
+            missingFields: [],
+            clarificationQuestions: [],
+            suggestions: [],
+          },
+          recommendations: ["输入完整，无需澄清"],
+        }),
+        JSON.stringify({
+          workerId: "solution-review-assistant",
+          status: "success",
+          output: {
+            finalResponse:
+              "The workflow is export-ready; use the bundled artifacts as the final reviewed output.",
+            nextActions: ["export_bundle", "artifact-bundle-index.md"],
+          },
+          recommendations: ["export_bundle", "artifact-bundle-index.md"],
+        }),
+      ],
+    })
+    const runtime = createCloudSolutionRuntime(process.cwd(), {
+      worktree: process.cwd(),
+      client,
+    })
+
+    const result = await runtime.kernel.invokeTool({
+      toolName: "start_solution_review_workflow",
+      sessionID: "runtime-scn05-confirmed-session",
+      args: createScn05PromotedDocumentAssistFixture(),
+    })
+    const parsed = JSON.parse(result)
+
+    expect(parsed.inputState).toBe("confirmed_slice")
+    expect(parsed.orchestrationState).toBe("export_ready")
+    expect(parsed.confirmationSummary.confirmedEntityRefs).toEqual([
+      "allocation:allocation-document-public-service-10-50-0-10",
+      "segment:segment-document-public-service",
+    ])
+    expect(parsed.confirmationSummary.pendingEntityRefs).toEqual([])
+  })
+
+  test("surfaces mixed canonical and draft input as a failed workflow at runtime", async () => {
+    const { client } = createFakeCoordinatorClient()
+    const runtime = createCloudSolutionRuntime(process.cwd(), {
+      worktree: process.cwd(),
+      client,
+    })
+
+    const result = await runtime.kernel.invokeTool({
+      toolName: "start_solution_review_workflow",
+      sessionID: "runtime-scn05-mixed-session",
+      args: {
+        ...createScn05DocumentAssistedDraftFixture(),
+        segments: [
+          {
+            id: "segment-mixed",
+            name: "mixed",
+            segmentType: "service",
+            cidr: "10.99.0.0/24",
+            gateway: "10.99.0.1",
+            purpose: "mixed",
+            sourceRefs: [],
+            statusConfidence: "confirmed",
+          },
+        ],
+      },
+    })
+    const parsed = JSON.parse(result)
+
+    expect(parsed.orchestrationState).toBe("failed")
+    expect(parsed.inputState).toBe("candidate_fact_draft")
+    expect(parsed.nextAction).toBe("inspect_failure")
+    expect(parsed.finalResponse).toContain("failed")
   })
 
   test("fails start_solution_review_workflow through the runtime kernel without a client", () => {

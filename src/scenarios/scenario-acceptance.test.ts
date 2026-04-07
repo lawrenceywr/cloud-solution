@@ -6,7 +6,10 @@ import {
   createScn02DualTorFixture,
   createScn03MultiRackPodFixture,
   createScn04CloudNetworkAllocationFixture,
+  createScn05DocumentAssistedDraftFixture,
+  createScn05PromotedDocumentAssistFixture,
 } from "./fixtures"
+import { createFakeCoordinatorClient } from "../test-helpers/fake-coordinator-client"
 
 async function invokeTool(args: {
   toolName: string
@@ -16,6 +19,26 @@ async function invokeTool(args: {
   const result = await runtime.kernel.invokeTool({
     toolName: args.toolName,
     sessionID: `scenario-${args.toolName}`,
+    args: args.fixture,
+  })
+
+  return JSON.parse(result)
+}
+
+async function invokeReviewWorkflow(args: {
+  fixture: Record<string, unknown>
+  promptTexts: string[]
+}) {
+  const { client } = createFakeCoordinatorClient({
+    promptTexts: args.promptTexts,
+  })
+  const runtime = createCloudSolutionRuntime(process.cwd(), {
+    worktree: process.cwd(),
+    client,
+  })
+  const result = await runtime.kernel.invokeTool({
+    toolName: "start_solution_review_workflow",
+    sessionID: "scenario-start-solution-review-workflow",
     args: args.fixture,
   })
 
@@ -179,6 +202,110 @@ describe("scenario acceptance", () => {
       "artifact-bundle-index.md",
       "design-assumptions-and-gaps.md",
       "ip-allocation-table.md",
+    ])
+  })
+
+  test("SCN-05 document-assisted drafts stay non-exportable until explicitly confirmed", async () => {
+    const draft = await invokeTool({
+      toolName: "draft_topology_model",
+      fixture: createScn05DocumentAssistedDraftFixture(),
+    })
+    const review = await invokeReviewWorkflow({
+      fixture: createScn05DocumentAssistedDraftFixture(),
+      promptTexts: [
+        JSON.stringify({
+          workerId: "requirements-clarification",
+          status: "success",
+          output: {
+            missingFields: ["documentAssist.candidateFacts"],
+            clarificationQuestions: [
+              {
+                field: "documentAssist.candidateFacts",
+                question: "文档提取候选事实尚未确认，请确认需要保留的候选实体后再继续导出。",
+                severity: "warning",
+                suggestion:
+                  "在 draft_topology_model 中通过 confirmation.entityRefs 显式确认候选实体后重新运行 review workflow。",
+              },
+            ],
+            suggestions: [
+              "在 draft_topology_model 中通过 confirmation.entityRefs 显式确认候选实体后重新运行 review workflow。",
+            ],
+          },
+          recommendations: [
+            "在 draft_topology_model 中通过 confirmation.entityRefs 显式确认候选实体后重新运行 review workflow。",
+          ],
+        }),
+        JSON.stringify({
+          workerId: "solution-review-assistant",
+          status: "success",
+          output: {
+            finalResponse:
+              "Draft candidate facts still require confirmation before export can continue.",
+            nextActions: [
+              "segment:segment-document-public-service",
+              "allocation:allocation-document-public-service-10-50-0-10",
+            ],
+          },
+          recommendations: [
+            "segment:segment-document-public-service",
+            "allocation:allocation-document-public-service-10-50-0-10",
+          ],
+        }),
+      ],
+    })
+
+    expect(draft.inputState).toBe("candidate_fact_draft")
+    expect(draft.validationSummary.valid).toBe(false)
+    expect(draft.validationSummary.issues.map((issue: { code: string }) => issue.code)).toContain(
+      "network_fact_not_confirmed",
+    )
+    expect(review.inputState).toBe("candidate_fact_draft")
+    expect(review.orchestrationState).toBe("blocked")
+    expect(review.confirmationSummary.pendingEntityRefs).toEqual([
+      "allocation:allocation-document-public-service-10-50-0-10",
+      "segment:segment-document-public-service",
+    ])
+  })
+
+  test("SCN-05 reaches export-ready only after explicit confirmation", async () => {
+    const promotedDraft = await invokeTool({
+      toolName: "draft_topology_model",
+      fixture: createScn05PromotedDocumentAssistFixture(),
+    })
+    const review = await invokeReviewWorkflow({
+      fixture: createScn05PromotedDocumentAssistFixture(),
+      promptTexts: [
+        JSON.stringify({
+          workerId: "requirements-clarification",
+          status: "success",
+          output: {
+            missingFields: [],
+            clarificationQuestions: [],
+            suggestions: [],
+          },
+          recommendations: ["输入完整，无需澄清"],
+        }),
+        JSON.stringify({
+          workerId: "solution-review-assistant",
+          status: "success",
+          output: {
+            finalResponse:
+              "The workflow is export-ready; use the bundled artifacts as the final reviewed output.",
+            nextActions: ["export_bundle", "artifact-bundle-index.md"],
+          },
+          recommendations: ["export_bundle", "artifact-bundle-index.md"],
+        }),
+      ],
+    })
+
+    expect(promotedDraft.inputState).toBe("confirmed_slice")
+    expect(promotedDraft.validationSummary.valid).toBe(true)
+    expect(promotedDraft.confirmationSummary.pendingEntityRefs).toEqual([])
+    expect(review.inputState).toBe("confirmed_slice")
+    expect(review.orchestrationState).toBe("export_ready")
+    expect(review.confirmationSummary.confirmedEntityRefs).toEqual([
+      "allocation:allocation-document-public-service-10-50-0-10",
+      "segment:segment-document-public-service",
     ])
   })
 })
