@@ -5,6 +5,7 @@ import type { CloudSolutionConfig } from "../config"
 import { SolutionRequirementSchema, SourceReferenceSchema } from "../domain"
 import type { WorkerRuntimeContext } from "../coordinator/types"
 import { StructuredSolutionInputSchema } from "../normalizers/normalize-structured-solution-input"
+import { prepareDocumentSourcesAsMarkdown } from "./document-source-markdown"
 import { executeDocumentAssistedExtractionWorkerSubsession } from "../workers/document-assisted-extraction"
 
 const DocumentSourceSchema = SourceReferenceSchema.extend({
@@ -74,10 +75,16 @@ export async function runExtractDocumentCandidateFacts(args: {
     )
   }
 
+  const markdownPreparation = await prepareDocumentSourcesAsMarkdown({
+    documentSources: normalizedDocumentSources,
+    runtime: args.runtime,
+  })
+
   const extractionResult = await executeDocumentAssistedExtractionWorkerSubsession(
     {
       requirement: parsedInput.requirement,
       documentSources: normalizedDocumentSources,
+      convertedDocuments: markdownPreparation.convertedDocuments,
     },
     args.runtime,
   )
@@ -99,6 +106,7 @@ export async function runExtractDocumentCandidateFacts(args: {
       },
     },
     extractionWarnings: uniqueStrings([
+      ...markdownPreparation.conversionWarnings,
       ...extractionResult.result.output.extractionWarnings,
       ...(extractionResult.result.errors ?? []),
     ]),

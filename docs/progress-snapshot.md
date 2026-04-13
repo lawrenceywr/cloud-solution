@@ -1,7 +1,7 @@
 # Progress Snapshot
 
-**Last Updated:** 2026-04-12  
-**Status:** MVP Complete → Post-MVP Optimization Phase Complete
+**Last Updated:** 2026-04-13  
+**Status:** MVP Complete → Phase 9 In Progress
 
 ---
 
@@ -9,11 +9,18 @@
 
 ✅ **Phase 8 Complete** - Agent boundary cleanup, formal extraction agent split, and four advisory planner slices implemented.
 
-🟡 **Active Work:** Phase 9 (MCP / External Integrations) - still deferred until the extraction + planner path is stable.
+🟡 **Active Work:** Phase 9 (MCP / External Integrations) - started with internal MarkItDown preprocessing on the document-assisted extraction path.
 
 ---
 
 ## Completed Capabilities
+
+### MarkItDown Extraction Preprocessing (NEW 🟡)
+- ✅ `extract_document_candidate_facts` now performs an internal markdown-preparation step before document-assisted extraction
+- ✅ converted markdown stays advisory and never replaces original `documentSources` as provenance anchors
+- ✅ the markdown-preparation child session now explicitly requests `markitdown_convert_to_markdown`
+- ✅ forged `sourceRef` markdown payloads and blank markdown outputs are rejected back into warnings/fallback behavior
+- ⏳ broader Phase 9 MCP / external-system integration is still pending
 
 ### Agent Boundary & Planner Advisory Layer (NEW ✅)
 - ✅ `extract_document_candidate_facts`, `draft_topology_model`, and `summarize_design_gaps` now route through `src/features/`
@@ -70,8 +77,8 @@
 
 ## Next Up (Not Started)
 
-1. **MCP / External Integrations** - deferred until extraction + planner path is stable
-2. **Phase 9 Planning** - [to be defined]
+1. **Broaden Phase 9 MCP integrations** - beyond the current internal MarkItDown preprocessing slice
+2. **Decide whether MarkItDown should remain extraction-only or become a reusable internal adapter for other evidence flows**
 
 ---
 
@@ -109,6 +116,20 @@
 For new sessions, read **this file only** (~1k tokens) instead of full roadmap/backlog (~80k tokens).
 
 Reference full docs only when implementing specific features.
+
+---
+
+## Phase 9 Current Slice Summary
+
+**Started:** 2026-04-13  
+**Focus:** internal MarkItDown preprocessing for `extract_document_candidate_facts`  
+**Verification:** `bun test` (249/249), `bun run typecheck`, `bun run build`, plus manual QA of the two-step markdown-prep → extraction path
+
+**Key Deliverables:**
+- internal `document-source-markdown` child-session contract
+- feature-owned markdown preprocessing before extraction worker handoff
+- explicit MarkItDown tool allowlist for the markdown-prep child session
+- advisory markdown filtering that keeps original `documentSources` as the provenance anchor
 
 ---
 

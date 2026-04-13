@@ -8,6 +8,7 @@ import {
   DocumentAssistedExtractionOutputSchema,
   runDocumentAssistedExtractionInChildSession,
 } from "../../agents"
+import type { ConvertedDocumentSource } from "../../agents/document-source-markdown"
 import type { SubsessionProtocolResult } from "../../coordinator/subsession-protocol"
 import { StructuredSolutionInputSchema } from "../../normalizers/normalize-structured-solution-input"
 
@@ -20,6 +21,7 @@ const ExtractedCandidateFactsSchema = StructuredSolutionInputSchema.shape.struct
 export type DocumentAssistedExtractionInput = {
   requirement: SolutionRequirement
   documentSources: SourceReference[]
+  convertedDocuments?: ConvertedDocumentSource[]
 }
 
 function uniqueStrings(values: string[]): string[] {
@@ -104,6 +106,7 @@ export async function executeDocumentAssistedExtractionWorkerSubsession(
     brief: buildDocumentAssistedExtractionAgentBrief({
       requirement: input.requirement,
       documentSources: input.documentSources,
+      convertedDocuments: input.convertedDocuments,
     }),
     runtime,
   })

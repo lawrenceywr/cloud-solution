@@ -8,6 +8,7 @@ export type SubsessionProtocolSpec<TOutputSchema extends z.ZodType> = {
   sessionTitle: string
   systemPrompt: string
   userPrompt: string
+  tools?: Record<string, boolean>
   outputSchema: TOutputSchema
 }
 
@@ -59,6 +60,7 @@ export async function executeSubsessionProtocol<TOutputSchema extends z.ZodType>
     workerName: spec.sessionTitle,
     systemPrompt: spec.systemPrompt,
     userPrompt: spec.userPrompt,
+    tools: spec.tools,
     runtime,
   })
 

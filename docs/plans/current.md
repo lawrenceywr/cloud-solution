@@ -1,103 +1,84 @@
 # Current Stage Plan
 
-**Created:** 2026-04-12  
-**Phase:** 8 (Agent Boundary & Planner Advisory Layer)  
-**Status:** Completed
+**Created:** 2026-04-13  
+**Phase:** 9 (MCP / External Integrations)  
+**Status:** In Progress
 
-> This plan replaces the previous historical placeholder in `current.md`. The detailed Phase 7 record remains in `docs/plans/stage-07-evidence-reconciliation.md`.
+> This plan now tracks the first active Phase 9 slice. Phase 8 remains complete and is summarized in `docs/progress-snapshot.md`.
 
 ---
 
 ## Scope
 
 **In Scope:**
-- move tool-to-worker direct calls behind feature-layer entry points
-- formalize document-assisted extraction into the same `agent + worker` split used by `solution-review-assistant`
-- add four advisory planner agents for the existing artifact domains
-- keep planner output draft-oriented and route it back through `draft_topology_model`
+- add internal MarkItDown preprocessing to `extract_document_candidate_facts`
+- keep `extract_document_candidate_facts` as the only public entrypoint for this slice
+- pass converted markdown into document-assisted extraction as advisory reading input only
+- keep original `documentSources` as the provenance anchor and preserve downstream confirmation/validation gates
 
 **Out of Scope:**
-- MCP / external system integrations
-- agent-generated final artifact tables
-- bypassing confirmation, normalization, or validation for planner output
+- a new public markdown-conversion tool
+- broad Phase 9 external inventory / topology integrations
+- bypassing confirmation, normalization, or validation for converted markdown or extracted facts
 
 ---
 
 ## Implementation Order
 
-### Phase 1 - Feature-Layer Boundary Cleanup
+### Phase 9A - Internal MarkItDown Extraction Preprocessing
 
 Goal:
-- tools stop importing child workers directly for extraction or reconciliation work
+- add a markdown-preparation step before document-assisted extraction without widening the public API
 
 Acceptance:
-- [x] `extract_document_candidate_facts`, `draft_topology_model`, and `summarize_design_gaps` route through `src/features/`
-- [x] tool payloads remain backward compatible
-- [x] deterministic validation/conflict logic still runs before optional child-session work
+- [x] `extract_document_candidate_facts` remains the public entrypoint
+- [x] markdown preprocessing happens internally before the extraction worker handoff
+- [x] converted markdown is advisory only and does not replace original `documentSources`
 
-### Phase 2 - Formal Document-Assisted Extraction Agent
+### Phase 9A Guardrails
 
 Goal:
-- move extraction prompt/schema execution into `src/agents/` while keeping worker-level validation strict
+- preserve the existing trust boundary while adding markdown-based reading help
 
 Acceptance:
-- [x] extraction prompt, brief, and child-session execution live under `src/agents/`
-- [x] worker remains the coordinator adapter and performs post-agent validation
+- [x] the markdown-preparation child session explicitly requests `markitdown_convert_to_markdown`
+- [x] blank markdown outputs fall back to warnings instead of entering extraction
+- [x] converted markdown entries whose `sourceRef` is not one of the supplied `documentSources` are dropped
 - [x] extraction still cannot emit confirmed facts or off-brief provenance
 
-### Phase 3 - Planner Advisory Slices
+### Phase 9A Verification Targets
 
 Goal:
-- add four internal planner agent/worker slices aligned to the four artifact domains
+- verify the markdown-prep → extraction → draft path under both normal and split-root conditions
 
 Acceptance:
-- [x] planners exist for device cabling, device port plan, port connection, and IP allocation
-- [x] planner output is structured draft input only
-- [x] planners do not generate final artifact tables directly
-- [x] planner output can round-trip through `draft_topology_model`
+- [x] targeted tests cover tool path, feature path, agent prompt injection, forged-source filtering, blank-markdown fallback, and `directory !== worktree`
+- [x] full repo verification passes after the integration
 
 ---
 
 ## Planned File Areas
 
 ### Documentation
-- `docs/architecture.md`
-- `docs/roadmap.md`
 - `docs/progress-snapshot.md`
-- `README.md`
+- `docs/backlog-active.md`
+- `docs/roadmap.md`
 
-### Phase 1
-- `src/features/extract-document-candidate-facts.ts`
-- `src/features/draft-topology-model.ts`
-- `src/features/summarize-design-gaps.ts`
-- `src/tools/extract-document-candidate-facts/tools.ts`
-- `src/tools/draft-topology-model/tools.ts`
-- `src/tools/summarize-design-gaps/tools.ts`
-
-### Phase 2
+### Code
+- `src/agents/document-source-markdown.ts`
 - `src/agents/document-assisted-extraction-brief.ts`
 - `src/agents/document-assisted-extraction.ts`
+- `src/features/document-source-markdown.ts`
+- `src/features/extract-document-candidate-facts.ts`
 - `src/workers/document-assisted-extraction/worker.ts`
-
-### Phase 3
-- `src/agents/planning-draft-brief.ts`
-- `src/agents/ip-allocation-planner.ts`
-- `src/agents/port-connection-planner.ts`
-- `src/agents/device-cabling-planner.ts`
-- `src/agents/device-port-plan-planner.ts`
-- `src/workers/ip-allocation-planner/worker.ts`
-- `src/workers/port-connection-planner/worker.ts`
-- `src/workers/device-cabling-planner/worker.ts`
-- `src/workers/device-port-plan-planner/worker.ts`
-- `src/features/ip-allocation-planner.ts`
-- `src/features/port-connection-planner.ts`
-- `src/features/device-cabling-planner.ts`
-- `src/features/device-port-plan-planner.ts`
+- `src/coordinator/subsession-protocol.ts`
+- `src/coordinator/subsession-executor.ts`
 
 ---
 
 ## Verification
 
+- [x] run targeted Bun tests for touched agents, workers, features, and tools
 - [x] run targeted Bun tests for touched agents, workers, features, and tools
 - [x] run `src/create-tools.test.ts`
 - [x] run `src/index.test.ts`
@@ -107,14 +88,10 @@ Acceptance:
 
 ### Verification Evidence
 
-- `bun test src/features/solution-review-agent-handoff.test.ts src/scenarios/scenario-acceptance.test.ts` → passing after wiring worker-only conflicts back into review state
-- `bun test` → passing (`244 pass / 0 fail` at final full verification before Oracle re-review)
+- `bun test src/agents/document-source-markdown.test.ts src/features/document-source-markdown.test.ts src/features/extract-document-candidate-facts.test.ts src/create-tools.test.ts src/index.test.ts src/scenarios/scenario-acceptance.test.ts` → passing for the MarkItDown integration slice
+- `bun test` → passing (`249 pass / 0 fail` after the MarkItDown integration)
 - `bun run typecheck` → passing
 - `bun run build` → passing
-- manual QA 1: `extract_document_candidate_facts` returned `nextAction: draft_topology_model` and preserved extraction warnings
-- manual QA 2: `draft_topology_model` returned `inputState: candidate_fact_draft` for document-assisted draft input
-- manual QA 3: `summarize_design_gaps` returned `workflowState: export_ready` for a clean deterministic slice
-- manual QA 4: planner output remained `inferred` with `system` provenance before re-entering draft flow
-- manual QA 5: a worker-only blocking conflict changed `start_solution_review_workflow` to `blocked`
-- regression 1: `export_artifact_bundle` now routes through `src/features/export-artifact-bundle.ts`
-- regression 2: `src/create-tools.test.ts` and `src/index.test.ts` prove a worker-only blocking conflict now blocks the public export path
+- manual QA 1: `extract_document_candidate_facts` spawned a markdown-preparation child session and then an extraction child session
+- manual QA 2: the markdown-preparation child prompt explicitly requested `markitdown_convert_to_markdown`
+- manual QA 3: the extraction child prompt contained converted markdown while the public result still returned `nextAction: draft_topology_model`

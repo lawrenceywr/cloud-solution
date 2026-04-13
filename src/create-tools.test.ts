@@ -331,6 +331,20 @@ describe("createTools", () => {
     const { client, createCalls, promptCalls } = createFakeCoordinatorClient({
       promptTexts: [
         JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: createScn05DocumentExtractionInputFixture().documentAssist.documentSources[0],
+                markdown: "# Supporting network design\n\nConverted with MarkItDown.",
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+        JSON.stringify({
           workerId: "document-assisted-extraction",
           status: "success",
           output: {
@@ -360,8 +374,8 @@ describe("createTools", () => {
     )
     const parsed = JSON.parse(response)
 
-    expect(createCalls).toHaveLength(1)
-    expect(promptCalls).toHaveLength(1)
+    expect(createCalls).toHaveLength(2)
+    expect(promptCalls).toHaveLength(2)
     expect(parsed.nextAction).toBe("draft_topology_model")
     expect(parsed.draftInput.documentAssist.documentSources).toEqual(
       createScn05DocumentExtractionInputFixture().documentAssist.documentSources,
@@ -376,6 +390,20 @@ describe("createTools", () => {
     const config = loadPluginConfig(process.cwd())
     const { client } = createFakeCoordinatorClient({
       promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: createDocumentAssistedCaptureRequirementToolInput().documentSources[0],
+                markdown: "# Runtime supporting design\n\nConverted with MarkItDown.",
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
         JSON.stringify({
           workerId: "document-assisted-extraction",
           status: "success",

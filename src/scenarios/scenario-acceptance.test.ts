@@ -297,6 +297,20 @@ describe("scenario acceptance", () => {
       fixture: createScn05DocumentExtractionInputFixture(),
       promptTexts: [
         JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: createScn05DocumentExtractionInputFixture().documentAssist.documentSources[0],
+                markdown: "# Supporting network design\n\nConverted with MarkItDown.",
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+        JSON.stringify({
           workerId: "document-assisted-extraction",
           status: "success",
           output: {

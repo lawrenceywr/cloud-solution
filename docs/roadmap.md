@@ -1,8 +1,8 @@
 # cloud-solution Roadmap
 
-> **Status (2026-04-12):** MVP Complete ✅ → Phase 8 Complete  
+> **Status (2026-04-13):** MVP Complete ✅ → Phase 9 Started  
 > **Latest Completed Phase:** 8 (Agent Boundary & Planner Advisory Layer)  
-> **Active Phase:** 9 (MCP / External Integrations) - deferred  
+> **Active Phase:** 9 (MCP / External Integrations) - in progress via internal MarkItDown preprocessing  
 > **Quick Summary:** See `docs/progress-snapshot.md`
 
 ## 1. Goal

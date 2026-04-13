@@ -397,6 +397,20 @@ describe("createCloudSolutionRuntime", () => {
     const { client, createCalls, promptCalls } = createFakeCoordinatorClient({
       promptTexts: [
         JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: createScn05DocumentExtractionInputFixture().documentAssist.documentSources[0],
+                markdown: "# Runtime converted design\n\nConverted with MarkItDown.",
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+        JSON.stringify({
           workerId: "document-assisted-extraction",
           status: "success",
           output: {
@@ -421,8 +435,8 @@ describe("createCloudSolutionRuntime", () => {
     })
     const parsed = JSON.parse(result)
 
-    expect(createCalls).toHaveLength(1)
-    expect(promptCalls).toHaveLength(1)
+    expect(createCalls).toHaveLength(2)
+    expect(promptCalls).toHaveLength(2)
     expect(parsed.nextAction).toBe("draft_topology_model")
     expect(parsed.draftInput.documentAssist.candidateFacts).toEqual(
       createScn05ExtractedCandidateFactsFixture(
@@ -477,6 +491,24 @@ describe("createCloudSolutionRuntime", () => {
   test("document-assisted capture output roundtrips into draft_topology_model at runtime", async () => {
     const { client } = createFakeCoordinatorClient({
       promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: {
+                  kind: "document",
+                  ref: "fixtures/runtime-roundtrip-supporting.pdf",
+                  note: "Runtime roundtrip supporting doc",
+                },
+                markdown: "# Runtime roundtrip\n\nConverted with MarkItDown.",
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
         JSON.stringify({
           workerId: "document-assisted-extraction",
           status: "success",
