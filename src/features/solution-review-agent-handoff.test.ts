@@ -25,6 +25,15 @@ describe("runSolutionReviewAgentHandoff", () => {
           recommendations: ["输入完整，无需澄清"],
         }),
         JSON.stringify({
+          workerId: "evidence-reconciliation",
+          status: "success",
+          output: {
+            conflicts: [],
+            reconciliationWarnings: [],
+          },
+          recommendations: ["未发现证据冲突，可以继续方案评审"],
+        }),
+        JSON.stringify({
           workerId: "solution-review-assistant",
           status: "success",
           output: {
@@ -50,14 +59,16 @@ describe("runSolutionReviewAgentHandoff", () => {
       },
     })
 
-    expect(createCalls).toHaveLength(2)
-    expect(promptCalls).toHaveLength(2)
+    expect(createCalls).toHaveLength(3)
+    expect(promptCalls).toHaveLength(3)
     expect(result.workersInvoked).toEqual([
       "requirements-clarification",
+      "evidence-reconciliation",
       "solution-review-assistant",
     ])
     expect(result.executionOrder).toEqual([
       "requirements-clarification",
+      "evidence-reconciliation",
       "solution-review-assistant",
     ])
     expect(result.inputState).toBe("confirmed_slice")
@@ -114,6 +125,15 @@ describe("runSolutionReviewAgentHandoff", () => {
           recommendations: ["请补充以下信息后再继续方案评审"],
         }),
         JSON.stringify({
+          workerId: "evidence-reconciliation",
+          status: "success",
+          output: {
+            conflicts: [],
+            reconciliationWarnings: [],
+          },
+          recommendations: ["未发现证据冲突，可以继续方案评审"],
+        }),
+        JSON.stringify({
           workerId: "solution-review-assistant",
           status: "success",
           output: {
@@ -152,10 +172,12 @@ describe("runSolutionReviewAgentHandoff", () => {
     expect(result.orchestrationState).toBe("blocked")
     expect(result.workersInvoked).toEqual([
       "requirements-clarification",
+      "evidence-reconciliation",
       "solution-review-assistant",
     ])
     expect(result.executionOrder).toEqual([
       "requirements-clarification",
+      "evidence-reconciliation",
       "solution-review-assistant",
     ])
     expect(result.workflowState).toBe("blocked")
@@ -197,6 +219,15 @@ describe("runSolutionReviewAgentHandoff", () => {
             suggestions: ["确认是否接受当前冗余不足，或补充第二条独立链路"],
           },
           recommendations: ["请补充以下信息后再继续方案评审"],
+        }),
+        JSON.stringify({
+          workerId: "evidence-reconciliation",
+          status: "success",
+          output: {
+            conflicts: [],
+            reconciliationWarnings: [],
+          },
+          recommendations: ["未发现证据冲突，可以继续方案评审"],
         }),
         JSON.stringify({
           workerId: "solution-review-assistant",
@@ -241,10 +272,12 @@ describe("runSolutionReviewAgentHandoff", () => {
     expect(result.orchestrationState).toBe("review_required")
     expect(result.workersInvoked).toEqual([
       "requirements-clarification",
+      "evidence-reconciliation",
       "solution-review-assistant",
     ])
     expect(result.executionOrder).toEqual([
       "requirements-clarification",
+      "evidence-reconciliation",
       "solution-review-assistant",
     ])
     expect(result.workflowState).toBe("review_required")
@@ -269,6 +302,85 @@ describe("runSolutionReviewAgentHandoff", () => {
     )
   })
 
+  test("blocks workflow when evidence reconciliation returns a new blocking conflict", async () => {
+    const pluginConfig = loadPluginConfig(process.cwd())
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "requirements-clarification",
+          status: "success",
+          output: {
+            missingFields: [],
+            clarificationQuestions: [],
+            suggestions: [],
+          },
+          recommendations: ["输入完整，无需澄清"],
+        }),
+        JSON.stringify({
+          workerId: "evidence-reconciliation",
+          status: "success",
+          output: {
+            conflicts: [
+              {
+                id: "worker-only-conflict",
+                conflictType: "duplicate_allocation_ip",
+                severity: "blocking",
+                message: "Evidence worker detected a duplicate IP conflict missed by deterministic reconciliation.",
+                entityRefs: [
+                  "allocation:allocation-server-a",
+                  "allocation:allocation-server-b",
+                ],
+                sourceRefs: [
+                  {
+                    kind: "document",
+                    ref: "worker-reconciliation.pdf",
+                    note: "Worker-reported conflict source",
+                  },
+                ],
+                suggestedResolution: "Review the conflicting allocation evidence before export.",
+              },
+            ],
+            reconciliationWarnings: [],
+          },
+          recommendations: ["检测到以下证据冲突，请解决后再继续方案评审"],
+        }),
+        JSON.stringify({
+          workerId: "solution-review-assistant",
+          status: "success",
+          output: {
+            finalResponse: "Workflow blocked due to worker-reported evidence conflicts.",
+            nextActions: ["resolve_conflicts", "worker-only-conflict"],
+          },
+          recommendations: ["resolve_conflicts", "worker-only-conflict"],
+        }),
+      ],
+    })
+
+    const result = await runSolutionReviewAgentHandoff({
+      input: createScn01SingleRackConnectivityFixture(),
+      pluginConfig,
+      runtime: {
+        client,
+        parentSessionID: "handoff-parent-session",
+        agent: "cloud-solution-test",
+        directory: process.cwd(),
+        worktree: process.cwd(),
+        abort: new AbortController().signal,
+      },
+    })
+
+    expect(result.orchestrationState).toBe("blocked")
+    expect(result.workflowState).toBe("blocked")
+    expect(result.reviewSummary).toBeDefined()
+    if (!result.reviewSummary) {
+      throw new Error("Expected reviewSummary to be defined for blocked workflow")
+    }
+    expect(result.reviewSummary.hasBlockingConflicts).toBe(true)
+    expect(result.reviewSummary.conflicts.some((conflict) => conflict.id === "worker-only-conflict")).toBe(true)
+    expect(result.agentBrief.orchestrationState).toBe("blocked")
+    expect(result.agentResponse.nextAction).toBe("resolve_blockers")
+  })
+
   test("preserves export-ready public behavior when clarification child output envelope is valid but typed output is invalid", async () => {
     const pluginConfig = loadPluginConfig(process.cwd())
     const { client } = createFakeCoordinatorClient({
@@ -280,6 +392,15 @@ describe("runSolutionReviewAgentHandoff", () => {
             missingFields: [],
           },
           recommendations: ["输入完整，无需澄清"],
+        }),
+        JSON.stringify({
+          workerId: "evidence-reconciliation",
+          status: "success",
+          output: {
+            conflicts: [],
+            reconciliationWarnings: [],
+          },
+          recommendations: ["未发现证据冲突，可以继续方案评审"],
         }),
         JSON.stringify({
           workerId: "solution-review-assistant",
@@ -310,10 +431,12 @@ describe("runSolutionReviewAgentHandoff", () => {
     expect(result.orchestrationState).toBe("export_ready")
     expect(result.workersInvoked).toEqual([
       "requirements-clarification",
+      "evidence-reconciliation",
       "solution-review-assistant",
     ])
     expect(result.executionOrder).toEqual([
       "requirements-clarification",
+      "evidence-reconciliation",
       "solution-review-assistant",
     ])
     expect(result.workflowState).toBe("export_ready")

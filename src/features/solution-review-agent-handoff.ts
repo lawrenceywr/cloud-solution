@@ -32,7 +32,10 @@ import {
 } from "../workers/requirements-clarification/question-templates"
 import { executeClarificationWorker } from "../workers/requirements-clarification/worker"
 import { ClarificationWorkerOutputSchema } from "../workers/requirements-clarification/types"
+import { executeEvidenceReconciliationWorker } from "../workers/evidence-reconciliation"
+import { EvidenceReconciliationWorkerOutputSchema } from "../workers/evidence-reconciliation/types"
 import { executeSolutionReviewAssistantWorker } from "../workers/solution-review-assistant/worker"
+import { reconcileExtractedFacts } from "../validators"
 import {
   runSolutionReviewWorkflow,
   type SolutionReviewWorkflowResult,
@@ -121,7 +124,7 @@ function getClarificationFallbackWarnings(errors?: string[]): string[] {
       ]
 }
 
-function buildReviewWorkflowWorkers(): WorkerDefinition[] {
+function buildPreAssistantWorkflowWorkers(): WorkerDefinition[] {
   return [
     {
       id: "requirements-clarification",
@@ -133,15 +136,77 @@ function buildReviewWorkflowWorkers(): WorkerDefinition[] {
       execute: executeClarificationWorker,
     },
     {
-      id: "solution-review-assistant",
-      name: "Solution Review Assistant",
-      description: "Produces the assistant follow-up response from the workflow brief and prior worker results.",
+      id: "evidence-reconciliation",
+      name: "Evidence Reconciliation",
+      description: "Detects conflicts between extracted facts from multiple sources.",
       triggerCondition: () => true,
-      priority: 200,
+      priority: 150,
       dependencies: ["requirements-clarification"],
-      execute: executeSolutionReviewAssistantWorker,
+      execute: executeEvidenceReconciliationWorker,
     },
   ]
+}
+
+function buildEvidenceFallbackWarnings(errors?: string[]): string[] {
+  if (
+    errors?.length === 1
+    && errors[0] === "Worker evidence-reconciliation returned invalid output result"
+  ) {
+    return [
+      "Evidence reconciliation child session returned invalid output; used deterministic conflict summary instead.",
+    ]
+  }
+
+  return errors && errors.length > 0
+    ? errors
+    : [
+        "Evidence reconciliation child session returned invalid output; used deterministic conflict summary instead.",
+      ]
+}
+
+function buildEvidenceReconciliationOutcome(args: {
+  deterministicConflicts: SolutionReviewWorkflowResult["reviewSummary"]["conflicts"]
+  workerResult?: WorkerResult
+}): {
+  conflicts: SolutionReviewWorkflowResult["reviewSummary"]["conflicts"]
+  warnings?: string[]
+} {
+  const { deterministicConflicts, workerResult } = args
+  if (!workerResult || workerResult.status === "failed") {
+    return {
+      conflicts: deterministicConflicts,
+      warnings: uniqueStrings(buildEvidenceFallbackWarnings(workerResult?.errors)),
+    }
+  }
+
+  const parsedOutput = EvidenceReconciliationWorkerOutputSchema.safeParse(workerResult.output)
+  if (!parsedOutput.success) {
+    return {
+      conflicts: deterministicConflicts,
+      warnings: uniqueStrings(buildEvidenceFallbackWarnings(workerResult.errors)),
+    }
+  }
+
+  const mergedConflicts = new Map(deterministicConflicts.map((conflict) => [conflict.id, conflict]))
+  for (const conflict of parsedOutput.data.conflicts) {
+    mergedConflicts.set(conflict.id, conflict)
+  }
+
+  return {
+    conflicts: [...mergedConflicts.values()],
+    ...(workerResult.errors && workerResult.errors.length > 0
+      ? {
+          warnings: uniqueStrings([
+            ...parsedOutput.data.reconciliationWarnings,
+            ...workerResult.errors,
+          ]),
+        }
+      : parsedOutput.data.reconciliationWarnings.length > 0
+        ? {
+            warnings: uniqueStrings(parsedOutput.data.reconciliationWarnings),
+          }
+        : {}),
+  }
 }
 
 function buildClarificationWorkerOutcome(args: {
@@ -196,7 +261,11 @@ function deriveWorkflowState(args: {
   workflow: SolutionReviewWorkflowResult
   clarificationSummary: ClarificationSummary
 }): SolutionReviewWorkflowState {
-  if (!args.workflow.validationSummary.valid || args.clarificationSummary.blockingQuestions.length > 0) {
+  if (
+    !args.workflow.validationSummary.valid
+    || args.workflow.reviewSummary.hasBlockingConflicts
+    || args.clarificationSummary.blockingQuestions.length > 0
+  ) {
     return "blocked"
   }
 
@@ -341,38 +410,70 @@ export async function runSolutionReviewAgentHandoff(args: {
       input: args.input,
       allowDocumentAssist: args.pluginConfig.allow_document_assist,
     })
+    
+    // Run deterministic conflict detection before workflow
+    const deterministicConflicts = reconcileExtractedFacts({
+      devices: preparedInput.normalizedInput.devices,
+      ports: preparedInput.normalizedInput.ports,
+      links: preparedInput.normalizedInput.links,
+      segments: preparedInput.normalizedInput.segments,
+      allocations: preparedInput.normalizedInput.allocations,
+      racks: preparedInput.normalizedInput.racks,
+    })
+    
+    const initialWorkflow = runSolutionReviewWorkflow({
+      input: preparedInput.normalizedInput,
+      mode: "export",
+      pluginConfig: args.pluginConfig,
+      includeBundleWhenNotExportReady: false,
+      conflicts: deterministicConflicts,
+    })
+
+    const clarificationSummary = assessClarificationQuestions(initialWorkflow.sliceInput)
+    const coordinatorResult = await runCoordinatorDispatcher({
+      input: {
+        ...initialWorkflow.sliceInput,
+      },
+      workers: buildPreAssistantWorkflowWorkers(),
+      runtime: args.runtime,
+      reviewSummary: initialWorkflow.reviewSummary,
+    })
+    const clarificationResult = await buildClarificationWorkerOutcome({
+      clarificationSummary,
+      workerResult: coordinatorResult.aggregatedOutput["requirements-clarification"],
+    })
+    const evidenceResult = buildEvidenceReconciliationOutcome({
+      deterministicConflicts,
+      workerResult: coordinatorResult.aggregatedOutput["evidence-reconciliation"],
+    })
     const workflow = runSolutionReviewWorkflow({
       input: preparedInput.normalizedInput,
       mode: "export",
       pluginConfig: args.pluginConfig,
       includeBundleWhenNotExportReady: false,
+      conflicts: evidenceResult.conflicts,
     })
-
-    const clarificationSummary = assessClarificationQuestions(workflow.sliceInput)
     const workflowResult = buildWorkflowResult({
       workflow,
       clarificationSummary,
     })
     const clarificationItems = collectClarificationItems(clarificationSummary)
     const agentBrief = buildSolutionReviewAgentBrief(workflowResult, clarificationItems)
-    const coordinatorResult = await runCoordinatorDispatcher({
-      input: {
+    const assistantWorkerResult = await executeSolutionReviewAssistantWorker(
+      {
         ...workflow.sliceInput,
+        validationIssues: workflow.issues,
+        reviewSummary: workflow.reviewSummary,
         context: {
           agentBrief,
         },
+        workerMessages: coordinatorResult.aggregatedOutput,
       },
-      workers: buildReviewWorkflowWorkers(),
-      runtime: args.runtime,
-      reviewSummary: workflow.reviewSummary,
-    })
-    const clarificationResult = await buildClarificationWorkerOutcome({
-      clarificationSummary,
-      workerResult: coordinatorResult.aggregatedOutput["requirements-clarification"],
-    })
+      args.runtime,
+    )
     const assistantResult = buildAssistantExecutionResult({
       brief: agentBrief,
-      workerResult: coordinatorResult.aggregatedOutput["solution-review-assistant"],
+      workerResult: assistantWorkerResult,
     })
     const agentResponse = buildAgentResponse({
       brief: agentBrief,
@@ -382,6 +483,7 @@ export async function runSolutionReviewAgentHandoff(args: {
 
     const warnings = uniqueStrings([
       ...(clarificationResult.warnings ?? []),
+      ...(evidenceResult.warnings ?? []),
       ...(assistantResult.warnings ?? []),
     ])
 
@@ -393,8 +495,8 @@ export async function runSolutionReviewAgentHandoff(args: {
       clarificationSummary,
       agentBrief,
       agentResponse,
-      workersInvoked: coordinatorResult.workersInvoked,
-      executionOrder: coordinatorResult.executionOrder,
+      workersInvoked: [...coordinatorResult.workersInvoked, "solution-review-assistant"],
+      executionOrder: [...coordinatorResult.executionOrder, "solution-review-assistant"],
       finalResponse: agentResponse.response,
       nextActions: uniqueStrings([
         ...clarificationResult.nextActions,

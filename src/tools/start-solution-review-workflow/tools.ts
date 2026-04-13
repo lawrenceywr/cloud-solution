@@ -160,7 +160,14 @@ export function createStartSolutionReviewWorkflowTools(args: {
         runtime,
       })
 
-      return JSON.stringify(handoff, null, 2)
+      // Add designGapSummary as an alias for reviewSummary for test compatibility
+      const handoffWithAlias = {
+        ...handoff,
+        designGapSummary: handoff.reviewSummary,
+        exportReady: handoff.orchestrationState === "export_ready",
+      }
+
+      return JSON.stringify(handoffWithAlias, null, 2)
     },
   })
 

@@ -3,6 +3,7 @@ import type {
   ArtifactBundleExport,
   ArtifactType,
   CloudSolutionSliceInput,
+  Conflict,
   DesignGapSummary,
   ValidationIssue,
   ValidationIssueSubjectType,
@@ -87,12 +88,14 @@ export function runSolutionReviewWorkflow(args: {
   mode: SolutionReviewWorkflowMode
   pluginConfig?: CloudSolutionConfig
   includeBundleWhenNotExportReady?: boolean
+  conflicts?: Conflict[]
 }): SolutionReviewWorkflowResult {
   const {
     input,
     mode,
     pluginConfig,
     includeBundleWhenNotExportReady = false,
+    conflicts = [],
   } = args
   const normalizedInput = normalizeSolutionToolInput(input)
   const sliceInput = mode === "export"
@@ -110,8 +113,9 @@ export function runSolutionReviewWorkflow(args: {
       input: sliceInput,
       issues,
       relevantSubjectTypes: getRelevantSubjectTypes(requestedArtifactTypes),
+      conflicts,
     })
-    const workflowState = validationSummary.valid
+    const workflowState = validationSummary.valid && !reviewSummary.hasBlockingConflicts
       ? reviewSummary.reviewRequired
         ? "review_required"
         : "export_ready"
@@ -137,10 +141,11 @@ export function runSolutionReviewWorkflow(args: {
   const reviewSummary = buildDesignGapReport({
     input: sliceInput,
     issues,
+    conflicts,
   })
 
   return {
-    workflowState: validationSummary.valid
+    workflowState: validationSummary.valid && !reviewSummary.hasBlockingConflicts
       ? reviewSummary.reviewRequired
         ? "review_required"
         : "export_ready"

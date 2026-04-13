@@ -10,6 +10,7 @@ import {
   createScn05DocumentExtractionInputFixture,
   createScn05ExtractedCandidateFactsFixture,
   createScn05PromotedDocumentAssistFixture,
+  createScn06MultiDocumentConflictFixture,
 } from "./fixtures"
 import { createFakeCoordinatorClient } from "../test-helpers/fake-coordinator-client"
 
@@ -408,5 +409,60 @@ describe("scenario acceptance", () => {
       "allocation:allocation-document-public-service-10-50-0-10",
       "segment:segment-document-public-service",
     ])
+  })
+
+  test("SCN-06 detects conflicts in multi-document evidence and blocks workflow on blocking conflicts", async () => {
+    const fixture = createScn06MultiDocumentConflictFixture()
+
+    const draft = await invokeTool({
+      toolName: "draft_topology_model",
+      fixture,
+    })
+    
+    expect(draft.inputState).toBe("candidate_fact_draft")
+    expect(draft.validationSummary.valid).toBe(false)
+    expect(draft.designGapSummary.hasBlockingConflicts).toBe(true)
+    expect(draft.designGapSummary.blockingConflictCount).toBeGreaterThan(0)
+    expect(draft.designGapSummary.conflicts.length).toBeGreaterThan(0)
+
+    const gaps = await invokeTool({
+      toolName: "summarize_design_gaps",
+      fixture,
+    })
+    
+    expect(gaps.hasBlockingConflicts).toBe(true)
+    expect(gaps.blockingConflictCount).toBeGreaterThan(0)
+    expect(gaps.conflicts.length).toBeGreaterThan(0)
+    expect(gaps.conflictArtifact).toBeDefined()
+
+    const review = await invokeReviewWorkflow({
+      fixture,
+      promptTexts: [
+        JSON.stringify({
+          workerId: "requirements-clarification",
+          status: "success",
+          output: {
+            missingFields: [],
+            clarificationQuestions: [],
+            suggestions: [],
+          },
+          recommendations: ["No clarification needed"],
+        }),
+        JSON.stringify({
+          workerId: "solution-review-assistant",
+          status: "success",
+          output: {
+            finalResponse: "Workflow blocked due to unresolved blocking conflicts.",
+            nextActions: ["resolve_conflicts", "conflict-report.md"],
+          },
+          recommendations: ["resolve_conflicts", "conflict-report.md"],
+        }),
+      ],
+    })
+    
+    expect(review.orchestrationState).toBe("blocked")
+    expect(review.designGapSummary.hasBlockingConflicts).toBe(true)
+    expect(review.designGapSummary.blockingConflictCount).toBeGreaterThan(0)
+    expect(review.exportReady).toBe(false)
   })
 })
