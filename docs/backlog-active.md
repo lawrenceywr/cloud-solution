@@ -1,10 +1,10 @@
 # Active Backlog
 
-**Last Updated:** 2026-04-12
+**Last Updated:** 2026-04-13
 
 ---
 
-## Next Up (Not Started)
+## Active
 
 ### BL-027 - MCP / External System Integrations
 
@@ -14,7 +14,8 @@
   - MCP server can receive extraction requests
   - external data enters candidate-fact path (never confirmed directly)
   - integration is optional and configurable
-- **Status:** Deferred
+- **Status:** In Progress
+- **Current slice:** internal MarkItDown preprocessing now exists behind `extract_document_candidate_facts`; broader MCP / external-source integration remains pending
 
 ---
 
@@ -22,7 +23,7 @@
 
 All BL-001 through BL-026 are complete. See `docs/backlog-archive.md` for historical details.
 
-Phase 8 agent-boundary cleanup, formal extraction-agent split, and planner-advisory slices are complete on the branch; MCP / external integrations remain the active deferred backlog item.
+Phase 8 agent-boundary cleanup, formal extraction-agent split, and planner-advisory slices are complete on the branch; Phase 9 has now started with internal MarkItDown preprocessing on the document-assisted extraction path.
 
 **MVP Done Criteria:** ✅ Satisfied
 
