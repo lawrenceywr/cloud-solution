@@ -1,6 +1,7 @@
 import type {
   CloudSolutionSliceInput,
   ConfidenceState,
+  Conflict,
   DesignGapSummary,
   DesignReviewItemRow,
   SourceReference,
@@ -8,7 +9,7 @@ import type {
   ValidationIssueSubjectType,
 } from "../../domain"
 import { DesignGapSummarySchema } from "../../domain"
-import { renderAssumptionReport } from "../../renderers"
+import { renderAssumptionReport, renderConflictReport } from "../../renderers"
 
 type ReviewSubject = {
   subjectType: ValidationIssueSubjectType
@@ -153,8 +154,9 @@ export function buildDesignGapReport(args: {
   input: CloudSolutionSliceInput
   issues: ValidationIssue[]
   relevantSubjectTypes?: ValidationIssueSubjectType[]
+  conflicts?: Conflict[]
 }): DesignGapSummary {
-  const { input, issues, relevantSubjectTypes } = args
+  const { input, issues, relevantSubjectTypes, conflicts = [] } = args
   const relevantSubjectTypeSet = relevantSubjectTypes
     ? new Set(relevantSubjectTypes)
     : undefined
@@ -171,7 +173,10 @@ export function buildDesignGapReport(args: {
       .filter((row) => !relevantSubjectTypeSet || relevantSubjectTypeSet.has(row.subjectType)),
   ].sort(compareRows)
   const reviewRequired =
-    issueRows.gaps.length > 0 || assumptions.length > 0 || unresolvedItems.length > 0
+    issueRows.gaps.length > 0 || assumptions.length > 0 || unresolvedItems.length > 0 || conflicts.length > 0
+
+  const blockingConflicts = conflicts.filter(c => c.severity === "blocking")
+  const warningConflicts = conflicts.filter(c => c.severity === "warning")
 
   return DesignGapSummarySchema.parse({
     reviewRequired,
@@ -181,6 +186,16 @@ export function buildDesignGapReport(args: {
     assumptions,
     gaps: issueRows.gaps,
     unresolvedItems,
+    conflicts,
+    blockingConflictCount: blockingConflicts.length,
+    warningConflictCount: warningConflicts.length,
+    hasBlockingConflicts: blockingConflicts.length > 0,
+    conflictArtifact: renderConflictReport({
+      projectName: input.requirement.projectName,
+      conflicts,
+      blockingConflictCount: blockingConflicts.length,
+      warningConflictCount: warningConflicts.length,
+    }),
     artifact: renderAssumptionReport({
       projectName: input.requirement.projectName,
       reviewRequired,

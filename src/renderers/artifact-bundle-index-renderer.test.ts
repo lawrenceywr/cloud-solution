@@ -30,6 +30,10 @@ describe("renderArtifactBundleIndex", () => {
         assumptions: [],
         gaps: [],
         unresolvedItems: [],
+        conflicts: [],
+        blockingConflictCount: 0,
+        warningConflictCount: 0,
+        hasBlockingConflicts: false,
         artifact: {
           name: "design-assumptions-and-gaps.md",
           mimeType: "text/markdown",
