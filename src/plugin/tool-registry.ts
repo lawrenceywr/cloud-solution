@@ -36,6 +36,7 @@ export function createToolRegistry(args: {
     }),
     ...createDraftTopologyModelTools({
       pluginConfig,
+      context,
     }),
     ...createExtractDocumentCandidateFactsTools({
       pluginConfig,
@@ -43,6 +44,7 @@ export function createToolRegistry(args: {
     }),
     ...createExportArtifactBundleTools({
       pluginConfig,
+      context,
     }),
     ...createGenerateDeviceCablingTableTools(),
     ...createGenerateDevicePortPlanTools(),
@@ -52,7 +54,9 @@ export function createToolRegistry(args: {
       pluginConfig,
       context,
     }),
-    ...createSummarizeDesignGapsTools(),
+    ...createSummarizeDesignGapsTools({
+      context,
+    }),
     ...createValidateSolutionModelTools(),
   }
 
