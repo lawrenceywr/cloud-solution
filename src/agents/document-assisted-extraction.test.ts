@@ -17,6 +17,12 @@ describe("runDocumentAssistedExtractionInChildSession", () => {
     const brief = buildDocumentAssistedExtractionAgentBrief({
       requirement: fixture.requirement,
       documentSources: fixture.documentAssist.documentSources,
+      convertedDocuments: [
+        {
+          sourceRef: fixture.documentAssist.documentSources[0],
+          markdown: "# Converted design\n\nConverted markdown content.",
+        },
+      ],
     })
     const { client, createCalls, promptCalls } = createFakeCoordinatorClient({
       promptTexts: [
@@ -39,6 +45,8 @@ describe("runDocumentAssistedExtractionInChildSession", () => {
 
     expect(createCalls).toHaveLength(1)
     expect(promptCalls).toHaveLength(1)
+    expect(JSON.stringify(promptCalls[0])).toContain("Converted markdown content.")
+    expect(JSON.stringify(promptCalls[0])).toContain("convertedDocuments")
     expect(result.success).toBe(true)
     if (result.success) {
       expect(result.result.output.candidateFacts).toEqual(createScn05ExtractedCandidateFactsFixture())
@@ -50,6 +58,7 @@ describe("runDocumentAssistedExtractionInChildSession", () => {
     const brief = buildDocumentAssistedExtractionAgentBrief({
       requirement: fixture.requirement,
       documentSources: fixture.documentAssist.documentSources,
+      convertedDocuments: [],
     })
     const { client } = createFakeCoordinatorClient({
       promptTexts: [

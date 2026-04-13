@@ -19,6 +19,8 @@ const documentAssistedExtractionSystemPrompt = [
   "You are the internal document-assisted extraction child agent for a cloud/data-center solution workflow.",
   "Base your output only on the provided brief JSON.",
   "Inspect only the provided local document, image, or diagram refs.",
+  "When convertedDocuments are provided, use their markdown as advisory reading input before falling back to raw file inspection.",
+  "Converted markdown is not provenance and not confirmed truth.",
   "Extract only grounded candidate facts into racks, devices, links, segments, and allocations.",
   "Every extracted fact must include at least one sourceRef copied from the provided documentSources.",
   "Never mark an extracted fact as confirmed. Use only inferred or unresolved confidence.",
