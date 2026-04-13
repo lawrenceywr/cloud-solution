@@ -267,11 +267,13 @@ These hooks should prevent the system from treating draft inference as final tru
 ### 6.3 Current Feature Modules and Near-Term Additions
 
 - `solution-review-workflow`
-- `artifact-bundle-builder`
-- `clarification-loop`
-- `background-plan-expander`
+- `solution-review-agent-handoff`
+- `extract-document-candidate-facts`
+- `draft-topology-model`
+- `summarize-design-gaps`
+- planner-advisory entry points aligned to the four artifact domains
 
-These are workflow helpers, not substitutes for validation logic.
+These are workflow helpers, not substitutes for validation logic. The post-MVP direction is to keep tools thin and route orchestration through feature-layer entry points instead of importing child workers directly from tool handlers.
 
 ### 6.4 Suggested First Renderer Modules
 
@@ -282,12 +284,32 @@ These are workflow helpers, not substitutes for validation logic.
 
 Renderers must remain pure and consume row schemas only.
 
-### 6.5 Later Agent/Skill Modules
+### 6.5 Agent / Worker Boundary After MVP
 
-The clarification/review path and the document-assisted extraction helper are already landed. Additional agent/skill modules should still wait until the core model is stable:
+The repository now treats `src/agents/`, `src/workers/`, and `src/features/` as three distinct layers:
 
-- artifact explanation assistant
-- evidence-reconciliation worker
+- `src/agents/` owns child-agent contracts: briefs, prompts, output schemas, and deterministic fallback when fallback is safe
+- `src/workers/` owns coordinator adapters: dependency ordering, worker IDs, worker-message plumbing, and post-agent validation
+- `src/features/` owns orchestration and trust-boundary decisions: draft preparation, deterministic conflict detection, validation, review/export gating, and feature-level entry points for tools
+
+That split keeps final artifact generation deterministic while still allowing narrow AI assistance where it adds value.
+
+### 6.6 Advisory Planner Layer
+
+Post-MVP planning assistants should align to the existing artifact domains instead of inventing a second hidden planning model:
+
+- device cabling planner
+- device port plan planner
+- device port connection planner
+- IP allocation planner
+
+Important rule: these planners are advisory only.
+
+- they may produce draft structured inputs
+- they may propose inferred or unresolved candidate facts
+- they must not produce final artifact tables directly
+- they must not mutate confirmed canonical state in place
+- every planner proposal must re-enter through `draft_topology_model` and pass validation before it can affect final artifacts
 
 ## 7. MVP Boundary
 

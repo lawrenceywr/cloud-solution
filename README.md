@@ -48,10 +48,11 @@ requirements / inventory / topology / rack docs
 - `docs/domain-model.md` — core entities, relationships, and validation contracts
 - `docs/roadmap.md` — phased delivery plan from MVP to later expansion
 - `docs/scenarios.md` — canonical scenarios that should drive tests and fixtures
-- `docs/backlog.md` — actionable backlog derived from roadmap phases and scenario coverage
-- `docs/plans/local-development-workflow.md` — local edit, rebuild, restart, and reload-check workflow for this plugin
-- `docs/plans/next-stage.md` — current-stage execution plan and file-by-file scope
-- `docs/plans/next-stage-testing.md` — current-stage TDD and verification plan
+- `docs/progress-snapshot.md` — current implementation snapshot
+- `docs/backlog-active.md` — active backlog derived from roadmap phases and scenario coverage
+- `docs/backlog-archive.md` — completed backlog history
+- `docs/plans/current.md` — current or most recent stage record
+- `docs/plans/stage-07-evidence-reconciliation.md` — Phase 7 planning detail
 
 ## Recommended First Development Order
 
@@ -80,17 +81,21 @@ The source layout currently follows this shape:
 ```text
 src/
 ├── index.ts
-├── config/
-├── domain/
-├── normalizers/
-├── validators/
-├── tools/
-├── hooks/
-├── features/
-├── renderers/
+├── artifacts/
 ├── agents/
-├── mcp/
-└── shared/
+├── config/
+├── coordinator/
+├── domain/
+├── features/
+├── hooks/
+├── normalizers/
+├── plugin/
+├── renderers/
+├── scenarios/
+├── shared/
+├── tools/
+├── validators/
+└── workers/
 ```
 
 ## Current Status
@@ -116,8 +121,13 @@ This directory now contains:
 - a converged public review-workflow handoff that now exposes `agentBrief` / `agentResponse` while keeping `finalResponse` / `nextActions` for backward compatibility
 - executable `SCN-04` cloud-allocation coverage in fixtures, validation, artifact generation, and scenario acceptance
 - executable `SCN-05` document-assisted candidate-fact drafting and confirmation coverage
+- executable `SCN-06` multi-document conflict coverage across drafting, review, and scenario acceptance
 - first front-door intake tools for `capture_solution_requirements` and `draft_topology_model`
 - explicit multi-worker review orchestration with dependency-ordered worker execution and worker-to-worker message passing
+- a deterministic evidence-reconciliation validator + worker wired into the review path
+- feature-layer entry points for extraction, topology drafting, and review-summary paths so tools stay thin
+- a formal `document-assisted-extraction` agent + worker split
+- four advisory planner slices for device cabling, device port planning, port connection, and IP allocation
 
 The current implementation covers:
 
@@ -125,7 +135,7 @@ The current implementation covers:
 2. explicit IP allocation modeling and artifact generation
 3. explicit port connection modeling and artifact generation
 4. rack-aware `SCN-01` physical planning via device cabling and device port plan artifacts
-5. canonical scenario acceptance for `SCN-01` to `SCN-04`
+5. canonical scenario acceptance for `SCN-01` to `SCN-06`
 6. structured-input normalization before validation/tool execution
 7. review-ready assumptions/gaps reporting from validated model state
 8. export-ready artifact bundle packaging on top of validated/reviewed outputs
@@ -140,27 +150,30 @@ The current implementation covers:
 17. explicit dependency-ordered multi-worker orchestration on the review path
 18. document-provenanced SCN-05 candidate-fact drafts with explicit confirmation/promotion
 19. a document-assisted extraction helper that feeds directly into the SCN-05 draft path
+20. deterministic evidence reconciliation and `SCN-06` multi-document conflict detection on the review path
 
 The current framework maturity is:
 
 1. plugin boot flow, runtime kernel, tool registry, and one pre-execution readiness guard are implemented
 2. tool-driven validation, artifact generation, review summary, workflow launch, `SCN-04` acceptance, requirement capture, and draft-topology intake are implemented end to end
-3. the review workflow now runs through explicit multi-worker orchestration on the existing coordinator substrate, and the SCN-05 path now includes document-assisted extraction, candidate-fact drafting, and explicit confirmation/promotion
+3. the review workflow now runs through explicit multi-worker orchestration on the existing coordinator substrate, the SCN-05 path includes document-assisted extraction, candidate-fact drafting, and explicit confirmation/promotion, the SCN-06 path adds blocking conflict detection through evidence reconciliation, and the post-MVP advisory planners now return draft structured input instead of final artifacts
 
 ## Current Agent / Orchestration Status
 
-The branch now has four concrete runtime roles in the first review workflow:
+The branch now has six formal child-agent modules and their worker/feature adapters:
 
 1. `start_solution_review_workflow` + `src/features/solution-review-agent-handoff.ts` act as the orchestrator layer.
 2. `src/workers/requirements-clarification/worker.ts` runs the clarification child worker.
-3. `src/workers/solution-review-assistant/worker.ts` runs the dependency-ordered review-assistant worker.
-4. `src/agents/solution-review-assistant.ts` runs the review-assistant child agent.
+3. `src/workers/evidence-reconciliation/worker.ts` runs the evidence-reconciliation child worker.
+4. `src/workers/solution-review-assistant/worker.ts` runs the dependency-ordered review-assistant worker.
+5. `src/agents/solution-review-assistant.ts` runs the review-assistant child agent.
+6. `src/agents/document-assisted-extraction.ts` plus the 4 planner agents in `src/agents/` own the extraction/planning child-session contracts.
 
-That means the codebase now has an explicit multi-worker review path, a document-assisted extraction helper, and a document-provenanced candidate-fact draft/promote path, but still only one formal `src/agents/` agent module today. Broader evidence reconciliation and external integration layers are still not implemented.
+That means the codebase now has an explicit multi-worker review path, a formal extraction agent split, a document-provenanced candidate-fact draft/promote path, a wired evidence-reconciliation step, and four advisory planner slices that feed back into `draft_topology_model`. Final artifact generation is still deterministic, and external integration layers are not implemented.
 
 The roadmap MVP done criteria are now satisfied on this branch.
 
 The next development focus is now the remaining post-MVP work:
 
-1. add an evidence-reconciliation worker on top of the extraction path
-2. add MCP / external-system integrations only after the extraction path is stable
+1. define Phase 9 scope around MCP / external integrations
+2. add MCP / external-system integrations only after the extraction + planner path is stable

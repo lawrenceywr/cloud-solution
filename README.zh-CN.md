@@ -48,10 +48,11 @@ MVP 采用 human-in-the-loop 模式。
 - `docs/domain-model.md` —— 核心实体、关系与校验契约
 - `docs/roadmap.md` —— 从 MVP 到后续扩展的分阶段交付计划
 - `docs/scenarios.md` —— 应驱动测试与 fixture 的规范场景
-- `docs/backlog.md` —— 从 roadmap 阶段与场景覆盖中拆解出的可执行 backlog
-- `docs/plans/local-development-workflow.md` —— 本地编辑、重建、重启与 reload 检查流程
-- `docs/plans/next-stage.md` —— 当前阶段执行计划与按文件划分的范围
-- `docs/plans/next-stage-testing.md` —— 当前阶段的 TDD 与验证计划
+- `docs/progress-snapshot.md` —— 当前实现快照
+- `docs/backlog-active.md` —— 当前仍活跃的 backlog
+- `docs/backlog-archive.md` —— 已完成 backlog 历史
+- `docs/plans/current.md` —— 当前阶段计划或最近一次阶段记录
+- `docs/plans/stage-07-evidence-reconciliation.md` —— Phase 7 详细记录
 
 ## 建议的首轮开发顺序
 
@@ -75,22 +76,26 @@ cloud-solution/
     └── scenarios.md
 ```
 
-代码会在后续继续补充，但预期的源码布局如下：
+当前源码布局如下：
 
 ```text
 src/
 ├── index.ts
-├── config/
-├── domain/
-├── normalizers/
-├── validators/
-├── tools/
-├── hooks/
-├── features/
-├── renderers/
+├── artifacts/
 ├── agents/
-├── mcp/
-└── shared/
+├── config/
+├── coordinator/
+├── domain/
+├── features/
+├── hooks/
+├── normalizers/
+├── plugin/
+├── renderers/
+├── scenarios/
+├── shared/
+├── tools/
+├── validators/
+└── workers/
 ```
 
 ## 当前状态
@@ -115,8 +120,12 @@ src/
 - 已经收敛的 review-workflow 公共 handoff 结果：公开 `agentBrief` / `agentResponse`，同时保留 `finalResponse` / `nextActions` 兼容字段
 - `SCN-04` 的可执行 cloud-allocation fixture / validation / artifact / acceptance 覆盖
 - `SCN-05` 的 document-assisted candidate-fact drafting / confirmation 可执行覆盖
+- `SCN-06` 的多文档冲突检测与阻断性 review 覆盖
 - 首个前门输入工具：`capture_solution_requirements` 与 `draft_topology_model`
 - 基于现有 coordinator 的显式多 worker review orchestration，以及 worker 间消息传递
+- 面向 extraction / drafting / review-summary 的 feature 层入口，让 tool 保持轻薄
+- 正式的 `document-assisted-extraction` agent + worker 拆分
+- 面向设备布线、设备端口规划、端口连接、IP 分配的 4 个 advisory planner slices
 
 当前实现覆盖了：
 
@@ -124,7 +133,7 @@ src/
 2. 显式的 IP 分配建模与产物生成
 3. 显式的端口连接建模与产物生成
 4. 面向 `SCN-01` 的机柜感知物理规划，包括设备布线表与设备端口规划表
-5. 覆盖 `SCN-01` 到 `SCN-04` 的规范场景验收
+5. 覆盖 `SCN-01` 到 `SCN-06` 的规范场景验收
 6. 在校验/工具执行前完成结构化输入归一化
 7. 基于已验证模型状态生成可直接评审的假设/缺口报告
 8. 在已验证/已评审输出之上完成 artifact bundle 打包
@@ -139,27 +148,30 @@ src/
 17. 把 review path 扩成显式的 dependency-ordered multi-worker orchestration
 18. 落地 document-provenanced 的 SCN-05 candidate-fact draft / promote 路径
 19. 落地把文档/图片/图输入接到 SCN-05 草稿链路的 extraction helper
+20. 落地正式的 extraction agent 拆分与 4 个 advisory planner slices
 
 当前框架成熟度为：
 
 1. 插件启动流程、runtime kernel、tool registry 以及一个执行前 readiness guard 已实现
 2. 基于 tool 的校验、产物生成、评审摘要、workflow launcher、`SCN-04` 验收、requirement capture 与 draft-topology intake 已端到端打通
-3. review workflow 已经跑在显式多 worker orchestration 上，SCN-05 的 extraction + candidate-fact draft / promote 路径也已落地，但更广义的证据归并与外部集成仍未展开
+3. review workflow 已经跑在显式多 worker orchestration 上，SCN-05 的 extraction + candidate-fact draft / promote 路径与 SCN-06 的冲突阻断都已落地，同时新增了 4 个 advisory planner slices；外部集成仍未展开
 
 ## 当前 Agent / Orchestration 状态
 
-当前首个 review workflow 里已经存在 4 个实际运行角色：
+当前仓库已经有 6 个正式 child-agent 模块及其对应的 worker / feature 适配层：
 
 1. `start_solution_review_workflow` + `src/features/solution-review-agent-handoff.ts` 组成外层 orchestrator。
 2. `src/workers/requirements-clarification/worker.ts` 负责澄清问题子 worker。
-3. `src/workers/solution-review-assistant/worker.ts` 负责依赖有序的 review-assistant worker。
-4. `src/agents/solution-review-assistant.ts` 负责 review assistant 子 agent。
+3. `src/workers/evidence-reconciliation/worker.ts` 负责证据冲突核对子 worker。
+4. `src/workers/solution-review-assistant/worker.ts` 负责依赖有序的 review-assistant worker。
+5. `src/agents/solution-review-assistant.ts` 负责 review assistant 子 agent。
+6. `src/agents/document-assisted-extraction.ts` 与 4 个 planner agents 负责 extraction / planning 的 child-session 合同。
 
-这意味着仓库已经有显式的多 worker review path，也已经有 document-assisted extraction helper 与 document-provenanced 的 candidate-fact draft / promote 路径；但严格按 `src/agents/` 目录来算，目前仍只有 1 个正式 agent 模块，更广义的证据归并和外部集成仍未实现。
+这意味着仓库已经有显式的多 worker review path、正式的 extraction agent 拆分、document-provenanced 的 candidate-fact draft / promote 路径，以及 4 个会把建议重新送回 `draft_topology_model` 的 advisory planner slices。最终产物仍然只能由经过验证的模型生成，外部集成仍未实现。
 
 当前分支已经满足 roadmap 中对 MVP 的完成标准。
 
 下一阶段剩余的 post-MVP 开发重点是：
 
-1. 在新的 extraction 路径之上补 evidence-reconciliation worker，同时不削弱 trust boundary
-2. 仅在 extraction 路径稳定后，再增加 MCP / 外部系统集成
+1. 定义 Phase 9 的 MCP / 外部集成范围
+2. 仅在 extraction + planner 路径稳定后，再增加 MCP / 外部系统集成

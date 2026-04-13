@@ -37,18 +37,18 @@ Completed in this stage:
 20. land `SCN-04` as the cloud allocation acceptance anchor with validator and artifact coverage
 21. add front-door requirement capture and draft-topology intake tools without weakening confirmed-only artifact gating
 22. expand the review path into explicit dependency-ordered multi-worker orchestration
+23. land evidence reconciliation on top of the document-assisted extraction path and add `SCN-06` conflict coverage
 
 Framework status right now:
 
 1. the plugin boot flow, runtime kernel, tool registry, and basic readiness guard are implemented
 2. deterministic model/artifact/review tools plus a first workflow launcher are implemented and verified end to end
-3. `src/features/` now contains deterministic review/export coordination and one orchestration launcher, `src/workers/` now contains explicit clarification, extraction, and review-assistant workers, and `src/agents/` now contains a first actual review assistant
-4. `src/coordinator/` now provides child-session execution, dependency-ordered worker dispatch, and explicit worker-to-worker message passing for the live review workflow, while the extraction tool feeds document-assisted candidate facts into the existing SCN-05 draft path
+3. `src/features/` now contains deterministic review/export coordination and one orchestration launcher, `src/workers/` now contains explicit clarification, extraction, evidence-reconciliation, and review-assistant workers, and `src/agents/` now contains a first actual review assistant
+4. `src/coordinator/` now provides child-session execution, dependency-ordered worker dispatch, and explicit worker-to-worker message passing for the live review workflow, while the extraction and reconciliation paths now cover the existing SCN-05 draft flow plus `SCN-06` conflict detection
 
 Active next focus:
 
-1. add an evidence-reconciliation worker on top of the new extraction path
-2. defer MCP / external integrations until the extraction path is stable
+1. defer MCP / external integrations until the extraction path remains stable after the landed evidence-reconciliation slice
 
 ## Progress Table
 
@@ -79,6 +79,7 @@ Active next focus:
 | BL-023 | completed | `SCN-05` now supports document-provenanced candidate-fact drafts that stay inferred/unresolved until explicitly confirmed. |
 | BL-024 | completed | `draft_topology_model` and `start_solution_review_workflow` now support explicit confirmation/promote flow and expose draft-vs-confirmed input state. |
 | BL-025 | completed | `extract_document_candidate_facts` now provides a real document-assisted extraction helper that feeds directly into the SCN-05 draft path. |
+| BL-026 | completed | Evidence reconciliation now detects and reports multi-source conflicts on the review path and anchors `SCN-06`. |
 
 ## Ordered Backlog
 
@@ -86,7 +87,7 @@ Active next focus:
 
 - **Goal**: freeze issue shape, severity, blocking semantics, and code catalog
 - **Depends on**: existing first validation slice
-- **Source docs**: `docs/domain-model.md`, `docs/plans/next-stage.md`
+- **Source docs**: `docs/domain-model.md`, `docs/roadmap.md`
 - **Acceptance**:
   - issue codes are centralized
   - issue ordering is deterministic
@@ -336,7 +337,17 @@ Active next focus:
   - extracted candidate facts carry document/image/diagram source refs and never return as confirmed
   - extraction -> draft -> review remains blocked until explicit confirmation
 
+### BL-026 - Evidence-Reconciliation Worker [completed]
+
+- **Goal**: validate consistency across extracted facts from multiple sources without auto-resolving conflicts
+- **Depends on**: `BL-025`
+- **Source docs**: `docs/architecture.md`, `docs/scenarios.md`
+- **Acceptance**:
+  - conflicts between extracted facts are detected and reported
+  - reconciliation does not auto-resolve conflicts without user confirmation
+  - reconciled facts remain inferred until explicitly confirmed
+  - the review workflow surfaces blocking conflicts on the `SCN-06` path
+
 ## Not Scheduled Yet
 
-- evidence-reconciliation worker
 - external system integrations

@@ -1,5 +1,10 @@
 # cloud-solution Roadmap
 
+> **Status (2026-04-12):** MVP Complete ✅ → Phase 8 Complete  
+> **Latest Completed Phase:** 8 (Agent Boundary & Planner Advisory Layer)  
+> **Active Phase:** 9 (MCP / External Integrations) - deferred  
+> **Quick Summary:** See `docs/progress-snapshot.md`
+
 ## 1. Goal
 
 Deliver a trustworthy MVP that can generate core solution-planning artifacts from explicit or user-confirmed facts.
@@ -129,6 +134,36 @@ Exit criteria:
 - user confirmation flow is in place
 - extracted facts remain non-confirmed until explicit promotion
 
+## Phase 8 - Agent Boundary and Planner Advisory Layer
+
+Build:
+
+- move tool-to-worker direct calls behind feature-layer entry points
+- formalize document-assisted extraction into the same agent + worker split used by the existing review assistant
+- add four internal planner agents aligned to the existing artifact domains
+- keep planner output advisory and draft-oriented instead of generating final artifacts directly
+
+Exit criteria:
+
+- tool handlers no longer import child workers directly for extraction or reconciliation flows
+- document-assisted extraction prompt/schema execution lives under `src/agents/`
+- four planner agent/worker slices exist for device cabling, device port plan, port connection, and IP allocation
+- planner output round-trips back through `draft_topology_model` instead of bypassing validation
+- final artifacts still come only from normalized and validated model data
+
+## Phase 9 - MCP / External Integrations
+
+Build:
+
+- optional external integrations for inventory/topology sources
+- MCP-backed source ingestion for advisory candidate-fact inputs
+
+Exit criteria:
+
+- integrations remain optional and configurable
+- external data stays outside the confirmed trust boundary until normalized, reviewed, and validated
+- planner/extraction path is stable enough to accept upstream source adapters
+
 ## 4. Suggested Work Tracks
 
 ### Track A - Domain Schemas
@@ -203,14 +238,14 @@ The MVP is done when:
 7. markdown renderer
 8. plugin tool integration
 
-Do not start with agents or autonomous multimodal automation.
+Do not let agents or multimodal automation bypass the validated-model trust boundary.
 
 ## 11. Execution Docs
 
 Use these documents when moving from roadmap phases to actual implementation work:
 
-- `docs/backlog.md` — ordered backlog items and dependencies
-- `docs/plans/next-stage.md` — current execution scope and file map
-- `docs/plans/next-stage-testing.md` — TDD order and verification commands
+- `docs/backlog-active.md` — active backlog items and dependencies
+- `docs/backlog-archive.md` — completed backlog history and prior slices
+- `docs/plans/current.md` — current execution scope, file map, and verification checklist
 
 The roadmap stays phase-oriented. Day-to-day implementation should follow the backlog and current-stage plan instead of expanding this document with task-level checklists.

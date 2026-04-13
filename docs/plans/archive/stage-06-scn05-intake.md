@@ -25,9 +25,9 @@ Out of scope:
 ### Planning docs
 
 - `README.md`
-- `docs/backlog.md`
-- `docs/plans/next-stage.md`
-- `docs/plans/next-stage-testing.md`
+- `docs/backlog-active.md`
+- `docs/backlog-archive.md`
+- `docs/plans/current.md`
 
 ### Scenario, intake, and orchestration coverage
 

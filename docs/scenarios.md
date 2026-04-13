@@ -151,6 +151,44 @@ The user provides a local PDF or image as supporting material, but confirmation 
 - the system never upgrades extracted facts directly to confirmed truth
 - unresolved extraction ambiguity appears in the review output
 
+## SCN-06 - Multi-Document Evidence Reconciliation
+
+### Summary
+
+Multiple documents and sources provide conflicting or overlapping information about the same infrastructure entities, requiring evidence reconciliation, conflict reporting, and workflow blocking until a human resolves the contradictions outside the current MVP path.
+
+### Inputs
+
+- multiple document sources (PDF, CSV, XLSX, DWG, DOCX, TXT)
+- contradictory device specifications from different sources
+- overlapping network segment definitions
+- duplicate IP allocations across sources
+- conflicting physical placement information
+
+### Expected Outputs
+
+- comprehensive conflict report with severity classification
+- blocking conflicts that prevent workflow progression
+- warning conflicts that require acknowledgment but allow progression
+- suggested resolutions for each detected conflict
+- no automatic resolved topology model until a later explicit resolution flow exists
+
+### Expected Validation Behavior
+
+- all specified conflict types are detected and classified by severity
+- blocking conflicts prevent artifact export until resolved
+- warning conflicts are reported but don't block workflow
+- conflict reports include entity references, source references, and suggested resolutions
+- the current workflow stops at detect / report / block rather than applying stored resolution decisions
+
+### Acceptance Checks
+
+- conflict detection covers all defined conflict types (device attributes, port IDs, link endpoints, segment overlaps, IP duplicates)
+- severity classification correctly identifies blocking vs warning conflicts
+- conflict reports are properly formatted with all required information
+- workflow properly blocks on blocking conflicts and allows progression on warnings
+- the review path clearly surfaces that conflict resolution still requires an external human decision outside the current implemented workflow
+
 ## Scenario Authoring Rules
 
 Each future scenario should include:
@@ -168,4 +206,5 @@ These scenarios should be treated as the source of truth for early tests and sna
 
 - `SCN-01` to `SCN-03` mainly drive later physical connectivity slices.
 - `SCN-04` is the current cloud-oriented acceptance anchor for the IP allocation path.
-- `SCN-05` is now implemented through document-assisted extraction, candidate-fact drafting, and explicit confirmation; broader evidence reconciliation remains future work.
+- `SCN-05` is implemented through document-assisted extraction, candidate-fact drafting, and explicit confirmation.
+- `SCN-06` now covers multi-document evidence reconciliation and blocking conflict detection on the review path.
