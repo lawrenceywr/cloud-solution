@@ -56,6 +56,40 @@ function hasNonEmptyCanonicalEntities(input: Record<string, unknown>): boolean {
     .some((field) => Array.isArray(input[field]) && input[field].length > 0)
 }
 
+function hasDocumentBasedFacts(input: Record<string, unknown>): boolean {
+  const documentKinds = new Set(["document", "diagram", "image"])
+  const checkEntity = (entity: unknown): boolean => {
+    if (typeof entity !== "object" || entity === null) {
+      return false
+    }
+    const record = entity as Record<string, unknown>
+    const statusConfidence = record.statusConfidence as string
+    const sourceRefs = Array.isArray(record.sourceRefs) ? record.sourceRefs : []
+    
+    // Check if entity has inferred/unresolved confidence with document-based source
+    const hasInferredStatus = statusConfidence === "inferred" || statusConfidence === "unresolved"
+    const hasDocumentSource = sourceRefs.some((ref: unknown) => {
+      if (typeof ref !== "object" || ref === null) {
+        return false
+      }
+      const refRecord = ref as Record<string, unknown>
+      return documentKinds.has(refRecord.kind as string)
+    })
+    
+    return hasInferredStatus && hasDocumentSource
+  }
+  
+  const checkArray = (entities: unknown): boolean => {
+    if (!Array.isArray(entities)) {
+      return false
+    }
+    return entities.some((entity: unknown) => checkEntity(entity))
+  }
+  
+  return ["devices", "racks", "ports", "links", "segments", "allocations"]
+    .some((field) => checkArray(input[field]))
+}
+
 function uniqueSourceRefs(sourceRefs: SourceReference[]): SourceReference[] {
   const entries = new Map<string, SourceReference>()
 
@@ -346,6 +380,7 @@ export function prepareDraftSolutionInput(
   args: PrepareDraftSolutionInputArgs,
 ): PreparedDraftSolutionInput {
   const rawInput = args.input
+  const rawInputRecord = rawInput as Record<string, unknown>
   if (typeof rawInput !== "object" || rawInput === null) {
     return {
       normalizedInput: CloudSolutionSliceInputSchema.parse(rawInput),
@@ -357,6 +392,22 @@ export function prepareDraftSolutionInput(
 
   const hasDraftKeys = "structuredInput" in rawInput || "documentAssist" in rawInput || "confirmation" in rawInput
   if (!hasDraftKeys) {
+    // Check if input contains entities with document-based inferred/unresolved confidence
+    if (hasDocumentBasedFacts(rawInputRecord)) {
+      // Treat as a candidate fact draft even without explicit documentAssist wrapper
+      const normalizedInput = CloudSolutionSliceInputSchema.parse(rawInput)
+      const candidateFacts = buildCandidateFacts(normalizedInput)
+      const confirmationSummary = CandidateFactConfirmationSummarySchema.parse({})
+      return {
+        normalizedInput,
+        inputState: candidateFacts.some((fact) => fact.requiresConfirmation)
+          ? "candidate_fact_draft"
+          : "confirmed_slice",
+        candidateFacts,
+        confirmationSummary,
+      }
+    }
+
     return {
       normalizedInput: CloudSolutionSliceInputSchema.parse(rawInput),
       inputState: "confirmed_slice",
@@ -364,8 +415,6 @@ export function prepareDraftSolutionInput(
       confirmationSummary: CandidateFactConfirmationSummarySchema.parse({}),
     }
   }
-
-  const rawInputRecord = rawInput as Record<string, unknown>
 
   if (hasDraftKeys && hasNonEmptyCanonicalEntities(rawInputRecord)) {
     throw new Error(
