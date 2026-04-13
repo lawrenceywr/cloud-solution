@@ -121,4 +121,38 @@ describe("document-assisted-extraction worker", () => {
       "segment:Document Public Service cannot be marked confirmed by document-assisted extraction.",
     ])
   })
+
+  test("fails when extracted candidate facts include source refs outside the supplied document sources", async () => {
+    const extractionOutput = createScn05ExtractedCandidateFactsFixture([
+      {
+        kind: "document",
+        ref: "unexpected-source.pdf",
+        note: "Unexpected source",
+      },
+    ])
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-assisted-extraction",
+          status: "success",
+          output: {
+            candidateFacts: extractionOutput,
+            extractionWarnings: [],
+          },
+          recommendations: ["draft_topology_model"],
+        }),
+      ],
+    })
+
+    const result = await executeDocumentAssistedExtractionWorker(
+      {
+        requirement: createScn05DocumentExtractionInputFixture().requirement,
+        documentSources: createScn05DocumentExtractionInputFixture().documentAssist.documentSources,
+      },
+      createWorkerRuntimeContext(client),
+    )
+
+    expect(result.status).toBe("failed")
+    expect(result.errors?.every((error) => error.includes("outside the supplied documentSources"))).toBe(true)
+  })
 })
