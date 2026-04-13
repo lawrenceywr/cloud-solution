@@ -10,6 +10,7 @@ type ExecuteWorkerSubsessionArgs = {
   workerName: string
   systemPrompt: string
   userPrompt: string
+  tools?: Record<string, boolean>
   runtime: WorkerRuntimeContext
 }
 
@@ -53,7 +54,7 @@ export async function executeWorkerSubsession(
   try {
     const createResponse = await args.runtime.client.session.create({
       query: {
-        directory: args.runtime.directory,
+        directory: args.runtime.worktree,
       },
       body: {
         parentID: args.runtime.parentSessionID,
@@ -76,7 +77,7 @@ export async function executeWorkerSubsession(
             id: childSession.id,
           },
           query: {
-            directory: args.runtime.directory,
+            directory: args.runtime.worktree,
           },
         })
       } catch {
@@ -96,12 +97,12 @@ export async function executeWorkerSubsession(
           id: childSession.id,
         },
         query: {
-          directory: args.runtime.directory,
+          directory: args.runtime.worktree,
         },
         body: {
           agent: args.runtime.agent,
           system: args.systemPrompt,
-          tools: {},
+          tools: args.tools ?? {},
           parts: [
             {
               type: "text",
