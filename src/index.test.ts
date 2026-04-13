@@ -809,7 +809,7 @@ describe("createCloudSolutionRuntime", () => {
     const parsed = JSON.parse(result)
 
     expect(parsed.workflowState).toBe("review_required")
-    expect(parsed.reviewRequired).toBe(true)
+    expect(parsed.reviewSummary.reviewRequired).toBe(true)
     expect(parsed.assumptions).toHaveLength(1)
     expect(parsed.artifact.name).toBe("design-assumptions-and-gaps.md")
     expect(parsed.artifact.content).toContain("Design Assumptions and Gaps")
@@ -834,6 +834,52 @@ describe("createCloudSolutionRuntime", () => {
     expect(parsed.includedArtifactNames).toContain("design-assumptions-and-gaps.md")
   })
 
+  test("blocks export_artifact_bundle through the runtime kernel when evidence reconciliation reports a worker-only conflict", async () => {
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "evidence-reconciliation",
+          status: "success",
+          output: {
+            conflicts: [
+              {
+                id: "runtime-bundle-worker-conflict",
+                conflictType: "duplicate_allocation_ip",
+                severity: "blocking",
+                message: "Runtime worker-only blocking conflict.",
+                entityRefs: ["allocation:allocation-server-a", "allocation:allocation-server-b"],
+                sourceRefs: [
+                  {
+                    kind: "document",
+                    ref: "runtime-worker-conflict.pdf",
+                    note: "Runtime worker conflict",
+                  },
+                ],
+                suggestedResolution: "Resolve before export.",
+              },
+            ],
+            reconciliationWarnings: [],
+          },
+          recommendations: ["检测到以下证据冲突，请解决后再继续方案评审"],
+        }),
+      ],
+    })
+    const runtime = createCloudSolutionRuntime(process.cwd(), {
+      worktree: process.cwd(),
+      client,
+    })
+
+    const result = await runtime.kernel.invokeTool({
+      toolName: "export_artifact_bundle",
+      sessionID: "runtime-bundle-worker-conflict-session",
+      args: createBundleRuntimeInput(),
+    })
+    const parsed = JSON.parse(result)
+
+    expect(parsed.workflowState).toBe("blocked")
+    expect(parsed.exportReady).toBeUndefined()
+  })
+
   test("invokes start_solution_review_workflow through the runtime kernel", async () => {
     const { client, createCalls, promptCalls } = createFakeCoordinatorClient({
       promptTexts: [
@@ -846,6 +892,15 @@ describe("createCloudSolutionRuntime", () => {
             suggestions: [],
           },
           recommendations: ["输入完整，无需澄清"],
+        }),
+        JSON.stringify({
+          workerId: "evidence-reconciliation",
+          status: "success",
+          output: {
+            conflicts: [],
+            reconciliationWarnings: [],
+          },
+          recommendations: ["未发现证据冲突，可以继续方案评审"],
         }),
         JSON.stringify({
           workerId: "solution-review-assistant",
@@ -871,14 +926,16 @@ describe("createCloudSolutionRuntime", () => {
     })
     const parsed = JSON.parse(result)
 
-    expect(createCalls).toHaveLength(2)
-    expect(promptCalls).toHaveLength(2)
+    expect(createCalls).toHaveLength(3)
+    expect(promptCalls).toHaveLength(3)
     expect(parsed.workersInvoked).toEqual([
       "requirements-clarification",
+      "evidence-reconciliation",
       "solution-review-assistant",
     ])
     expect(parsed.executionOrder).toEqual([
       "requirements-clarification",
+      "evidence-reconciliation",
       "solution-review-assistant",
     ])
     expect(createCalls[0]).toEqual(
@@ -890,6 +947,14 @@ describe("createCloudSolutionRuntime", () => {
       }),
     )
     expect(createCalls[1]).toEqual(
+      expect.objectContaining({
+        body: expect.objectContaining({
+          parentID: "runtime-workflow-session",
+          title: "Evidence Reconciliation",
+        }),
+      }),
+    )
+    expect(createCalls[2]).toEqual(
       expect.objectContaining({
         body: expect.objectContaining({
           parentID: "runtime-workflow-session",

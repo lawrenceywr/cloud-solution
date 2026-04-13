@@ -1093,9 +1093,9 @@ describe("createTools", () => {
     const parsed = JSON.parse(response)
 
     expect(parsed.workflowState).toBe("review_required")
-    expect(parsed.reviewRequired).toBe(true)
-    expect(parsed.assumptionCount).toBe(1)
-    expect(parsed.unresolvedItemCount).toBe(1)
+    expect(parsed.reviewSummary.reviewRequired).toBe(true)
+    expect(parsed.reviewSummary.assumptionCount).toBe(1)
+    expect(parsed.reviewSummary.unresolvedItemCount).toBe(1)
     expect(parsed.artifact.name).toBe("design-assumptions-and-gaps.md")
     expect(parsed.artifact.content).toContain("## Assumptions")
     expect(parsed.artifact.content).toContain("device-switch-a")
@@ -1172,6 +1172,66 @@ describe("createTools", () => {
     expect(parsed.artifacts).toHaveLength(6)
   })
 
+  test("export_artifact_bundle blocks when evidence reconciliation reports a worker-only blocking conflict", async () => {
+    const config = loadPluginConfig(process.cwd())
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "evidence-reconciliation",
+          status: "success",
+          output: {
+            conflicts: [
+              {
+                id: "bundle-worker-only-conflict",
+                conflictType: "duplicate_allocation_ip",
+                severity: "blocking",
+                message: "Worker-only blocking conflict for export bundle path.",
+                entityRefs: ["allocation:allocation-server-a", "allocation:allocation-server-b"],
+                sourceRefs: [
+                  {
+                    kind: "document",
+                    ref: "bundle-worker-conflict.pdf",
+                    note: "Worker-only export conflict",
+                  },
+                ],
+                suggestedResolution: "Resolve the conflicting allocation evidence before export.",
+              },
+            ],
+            reconciliationWarnings: [],
+          },
+          recommendations: ["检测到以下证据冲突，请解决后再继续方案评审"],
+        }),
+      ],
+    })
+    const managers = createManagers({
+      context: {
+        directory: process.cwd(),
+        worktree: process.cwd(),
+        client,
+      },
+      pluginConfig: config,
+    })
+
+    const tools = createTools({
+      pluginConfig: config,
+      managers,
+      context: {
+        directory: process.cwd(),
+        worktree: process.cwd(),
+        client,
+      },
+    })
+
+    const response = await tools.export_artifact_bundle.execute(
+      createBundleToolInput(),
+      createTestToolContext({ sessionID: "tool-test-session" }),
+    )
+    const parsed = JSON.parse(response)
+
+    expect(parsed.workflowState).toBe("blocked")
+    expect(parsed.exportReady).toBeUndefined()
+  })
+
   test("registers start_solution_review_workflow and returns orchestration states", async () => {
     const config = loadPluginConfig(process.cwd())
     const { client, createCalls, promptCalls } = createFakeCoordinatorClient({
@@ -1185,6 +1245,15 @@ describe("createTools", () => {
             suggestions: [],
           },
           recommendations: ["输入完整，无需澄清"],
+        }),
+        JSON.stringify({
+          workerId: "evidence-reconciliation",
+          status: "success",
+          output: {
+            conflicts: [],
+            reconciliationWarnings: [],
+          },
+          recommendations: ["未发现证据冲突，可以继续方案评审"],
         }),
         JSON.stringify({
           workerId: "solution-review-assistant",
@@ -1226,14 +1295,16 @@ describe("createTools", () => {
     )
     const parsed = JSON.parse(response)
 
-    expect(createCalls).toHaveLength(2)
-    expect(promptCalls).toHaveLength(2)
+    expect(createCalls).toHaveLength(3)
+    expect(promptCalls).toHaveLength(3)
     expect(parsed.workersInvoked).toEqual([
       "requirements-clarification",
+      "evidence-reconciliation",
       "solution-review-assistant",
     ])
     expect(parsed.executionOrder).toEqual([
       "requirements-clarification",
+      "evidence-reconciliation",
       "solution-review-assistant",
     ])
     expect(createCalls[0]).toEqual(
@@ -1245,6 +1316,14 @@ describe("createTools", () => {
       }),
     )
     expect(createCalls[1]).toEqual(
+      expect.objectContaining({
+        body: expect.objectContaining({
+          parentID: "tool-test-session",
+          title: "Evidence Reconciliation",
+        }),
+      }),
+    )
+    expect(createCalls[2]).toEqual(
       expect.objectContaining({
         body: expect.objectContaining({
           parentID: "tool-test-session",
