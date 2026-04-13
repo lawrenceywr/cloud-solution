@@ -198,6 +198,11 @@ export const ValidationIssueCodeSchema = z.enum([
   "multi_rack_links_missing",
   "rack_position_overlap",
   "rack_position_exceeds_height",
+  "conflict_duplicate_device",
+  "conflict_contradictory_attribute",
+  "conflict_duplicate_port_id",
+  "conflict_impossible_connection",
+  "conflict_segment_overlap",
 ])
 
 export const ValidationIssueSubjectTypeSchema = z.enum([
@@ -209,6 +214,37 @@ export const ValidationIssueSubjectTypeSchema = z.enum([
   "port",
   "link",
 ])
+
+export const ConflictTypeSchema = z.enum([
+  "duplicate_device",
+  "contradictory_device_attribute",
+  "duplicate_port_id",
+  "impossible_port",
+  "impossible_link_connection",
+  "link_endpoint_conflict",
+  "segment_address_overlap",
+  "segment_gateway_conflict",
+  "duplicate_allocation_ip",
+  "allocation_segment_conflict",
+])
+
+export const ConflictSchema = z.object({
+  id: z.string(),
+  conflictType: ConflictTypeSchema,
+  severity: z.enum(["blocking", "warning"]),
+  message: z.string(),
+  entityRefs: z.array(z.string()),
+  sourceRefs: z.array(SourceReferenceSchema),
+  suggestedResolution: z.string().optional(),
+  attributes: z.record(z.string(), z.array(z.unknown())).optional(),
+})
+
+export const ConflictReportSchema = z.object({
+  conflicts: z.array(ConflictSchema).default([]),
+  blockingConflictCount: z.number().int().nonnegative().default(0),
+  warningConflictCount: z.number().int().nonnegative().default(0),
+  hasBlockingConflicts: z.boolean().default(false),
+})
 
 export const ValidationIssueSchema = z.object({
   id: z.string(),
@@ -339,6 +375,11 @@ export const DesignGapSummarySchema = z.object({
   assumptions: z.array(DesignReviewItemRowSchema),
   gaps: z.array(DesignReviewItemRowSchema),
   unresolvedItems: z.array(DesignReviewItemRowSchema),
+  conflicts: z.array(ConflictSchema).default([]),
+  blockingConflictCount: z.number().int().nonnegative().default(0),
+  warningConflictCount: z.number().int().nonnegative().default(0),
+  hasBlockingConflicts: z.boolean().default(false),
+  conflictArtifact: GeneratedArtifactSchema.optional(),
   artifact: GeneratedArtifactSchema,
 })
 
@@ -401,3 +442,6 @@ export type ValidationSummary = z.infer<typeof ValidationSummarySchema>
 export type DesignGapSummary = z.infer<typeof DesignGapSummarySchema>
 export type ArtifactBundleExport = z.infer<typeof ArtifactBundleExportSchema>
 export type CloudSolutionModel = z.infer<typeof CloudSolutionModelSchema>
+export type ConflictType = z.infer<typeof ConflictTypeSchema>
+export type Conflict = z.infer<typeof ConflictSchema>
+export type ConflictReport = z.infer<typeof ConflictReportSchema>
