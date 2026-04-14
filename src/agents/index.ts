@@ -1,5 +1,6 @@
 export * from "./document-assisted-extraction"
 export * from "./document-assisted-extraction-brief"
+export * from "./document-source-advisory-mcp"
 export * from "./document-source-markdown"
 export * from "./device-cabling-planner"
 export * from "./device-port-plan-planner"

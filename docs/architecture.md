@@ -107,7 +107,7 @@ That pattern is still a good fit here because the plugin needs:
 - guard hooks
 - background workflow orchestration
 - optional agent/skill integration
-- optional MCP integration later
+- optional narrow MCP-backed advisory integration
 
 ## 5. Layer Responsibilities
 
@@ -238,7 +238,7 @@ Suggested responsibilities:
 - `features/` — background jobs and review workflows
 - `renderers/` — markdown and machine-friendly output
 - `agents/` — optional planning/review assistants
-- `mcp/` — optional external systems later
+- `mcp/` — optional dedicated external-system adapters when feature-local seams are no longer sufficient
 
 ### 6.1 Current Core Tool Modules and Near-Term Additions
 

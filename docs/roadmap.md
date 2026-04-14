@@ -1,8 +1,8 @@
 # cloud-solution Roadmap
 
-> **Status (2026-04-13):** MVP Complete ✅ → Phase 9 Started  
-> **Latest Completed Phase:** 8 (Agent Boundary & Planner Advisory Layer)  
-> **Active Phase:** 9 (MCP / External Integrations) - in progress via internal MarkItDown preprocessing  
+> **Status (2026-04-14):** MVP Complete ✅ → Phase 9 Complete ✅  
+> **Latest Completed Phase:** 9 (MCP / External Integrations)  
+> **Active Phase:** none - roadmap phases through Phase 9 are currently complete  
 > **Quick Summary:** See `docs/progress-snapshot.md`
 
 ## 1. Goal
@@ -157,6 +157,12 @@ Build:
 
 - optional external integrations for inventory/topology sources
 - MCP-backed source ingestion for advisory candidate-fact inputs
+
+Status note (2026-04-14):
+
+- internal MarkItDown preprocessing remains in place behind `extract_document_candidate_facts`
+- `extract_document_candidate_facts` now supports an optional config-gated MCP advisory source adapter for approved `inventory` / `system` requirement source refs
+- externally sourced evidence stays advisory and only reaches final artifacts after draft confirmation, normalization, and validation
 
 Exit criteria:
 

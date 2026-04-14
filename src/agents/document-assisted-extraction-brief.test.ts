@@ -1,11 +1,15 @@
 import { describe, expect, test } from "bun:test"
 
-import { createScn05DocumentExtractionInputFixture } from "../scenarios/fixtures"
+import {
+  createPhase09AdvisorySourcesFixture,
+  createScn05DocumentExtractionInputFixture,
+} from "../scenarios/fixtures"
 import { buildDocumentAssistedExtractionAgentBrief } from "./document-assisted-extraction-brief"
 
 describe("buildDocumentAssistedExtractionAgentBrief", () => {
   test("packages requirement, document sources, and extraction guardrails", () => {
     const fixture = createScn05DocumentExtractionInputFixture()
+    const advisorySources = createPhase09AdvisorySourcesFixture()
     const brief = buildDocumentAssistedExtractionAgentBrief({
       requirement: fixture.requirement,
       documentSources: fixture.documentAssist.documentSources,
@@ -15,6 +19,7 @@ describe("buildDocumentAssistedExtractionAgentBrief", () => {
           markdown: "# Converted design\n\nPlanner-facing markdown.",
         },
       ],
+      advisorySources,
     })
 
     expect(brief.agentID).toBe("document_assisted_extraction")
@@ -26,7 +31,9 @@ describe("buildDocumentAssistedExtractionAgentBrief", () => {
         markdown: "# Converted design\n\nPlanner-facing markdown.",
       },
     ])
+    expect(brief.advisorySources).toEqual(advisorySources)
     expect(brief.guardrails.some((item) => item.includes("confirmed"))).toBe(true)
     expect(brief.guardrails.some((item) => item.includes("provenance"))).toBe(true)
+    expect(brief.guardrails.some((item) => item.includes("external"))).toBe(true)
   })
 })

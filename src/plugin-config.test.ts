@@ -33,6 +33,7 @@ describe("loadPluginConfig", () => {
       "device-port-connection-table",
       "ip-allocation-table",
     ])
+    expect(result.document_assist_advisory_source_tool_name).toBeUndefined()
   })
 
   test("merges user and project config with unique disabled lists", () => {
@@ -47,6 +48,7 @@ describe("loadPluginConfig", () => {
       JSON.stringify({
         disabled_tools: ["describe_cloud_solution"],
         allow_document_assist: false,
+        document_assist_advisory_source_tool_name: "query_external_solution_source",
       }),
     )
     writeFileSync(
@@ -65,6 +67,7 @@ describe("loadPluginConfig", () => {
     expect(result.disabled_tools).toEqual(["describe_cloud_solution"])
     expect(result.disabled_hooks).toEqual(["execution-readiness-guard"])
     expect(result.allow_document_assist).toBe(false)
+    expect(result.document_assist_advisory_source_tool_name).toBe("query_external_solution_source")
   })
 
   test("throws when config content is invalid", () => {
@@ -76,5 +79,23 @@ describe("loadPluginConfig", () => {
     writeFileSync(projectConfigPath, JSON.stringify({ default_artifacts: "bad" }))
 
     expect(() => loadPluginConfig(projectDirectory, { projectConfigPath })).toThrow()
+  })
+
+  test("rejects unapproved advisory source tool names", () => {
+    const projectDirectory = createTempProject()
+    const projectConfigDir = join(projectDirectory, ".opencode")
+    const projectConfigPath = join(projectConfigDir, "cloud-solution.jsonc")
+
+    mkdirSync(projectConfigDir, { recursive: true })
+    writeFileSync(
+      projectConfigPath,
+      JSON.stringify({
+        document_assist_advisory_source_tool_name: "bash",
+      }),
+    )
+
+    expect(() => loadPluginConfig(projectDirectory, { projectConfigPath })).toThrow(
+      "query_external_solution_source",
+    )
   })
 })

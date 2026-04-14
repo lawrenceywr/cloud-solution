@@ -154,7 +154,7 @@ src/
 
 1. 插件启动流程、runtime kernel、tool registry 以及一个执行前 readiness guard 已实现
 2. 基于 tool 的校验、产物生成、评审摘要、workflow launcher、`SCN-04` 验收、requirement capture 与 draft-topology intake 已端到端打通
-3. review workflow 已经跑在显式多 worker orchestration 上，SCN-05 的 extraction + candidate-fact draft / promote 路径与 SCN-06 的冲突阻断都已落地，同时新增了 4 个 advisory planner slices；外部集成仍未展开
+3. review workflow 已经跑在显式多 worker orchestration 上，SCN-05 的 extraction + candidate-fact draft / promote 路径与 SCN-06 的冲突阻断都已落地，同时新增了 4 个 advisory planner slices，并且 Phase 9 已经补齐了挂在 extraction 路径后的窄版 advisory MCP source adapter
 
 ## 当前 Agent / Orchestration 状态
 
@@ -167,11 +167,8 @@ src/
 5. `src/agents/solution-review-assistant.ts` 负责 review assistant 子 agent。
 6. `src/agents/document-assisted-extraction.ts` 与 4 个 planner agents 负责 extraction / planning 的 child-session 合同。
 
-这意味着仓库已经有显式的多 worker review path、正式的 extraction agent 拆分、document-provenanced 的 candidate-fact draft / promote 路径，以及 4 个会把建议重新送回 `draft_topology_model` 的 advisory planner slices。最终产物仍然只能由经过验证的模型生成，外部集成仍未实现。
+这意味着仓库已经有显式的多 worker review path、正式的 extraction agent 拆分、document-provenanced 的 candidate-fact draft / promote 路径、4 个会把建议重新送回 `draft_topology_model` 的 advisory planner slices，以及一个挂在 `extract_document_candidate_facts` 后面的、受配置控制的窄版 MCP advisory source adapter。最终产物仍然只能由经过验证的模型生成，外部证据也仍然必须重新经过 draft 确认与验证，而不会绕过 trust boundary。
 
-当前分支已经满足 roadmap 中对 MVP 的完成标准。
+当前分支已经满足 roadmap 中对 MVP 以及当前 Phase 9 的完成标准。
 
-下一阶段剩余的 post-MVP 开发重点是：
-
-1. 定义 Phase 9 的 MCP / 外部集成范围
-2. 仅在 extraction + planner 路径稳定后，再增加 MCP / 外部系统集成
+当前没有正在进行中的 roadmap phase。后续如果出现新的场景需求，可以在现有 advisory MCP slice 之外继续扩展外部适配层。

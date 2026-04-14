@@ -1,29 +1,31 @@
 # Active Backlog
 
-**Last Updated:** 2026-04-13
+**Last Updated:** 2026-04-14
 
 ---
 
 ## Active
+
+_No active backlog items._
+
+---
+
+## Completed (Reference Only)
 
 ### BL-027 - MCP / External System Integrations
 
 - **Goal:** add optional external integrations for inventory/topology sources
 - **Depends on:** BL-026 (completed; extraction path stabilized further by evidence reconciliation and planner-boundary cleanup)
 - **Acceptance:**
-  - MCP server can receive extraction requests
-  - external data enters candidate-fact path (never confirmed directly)
-  - integration is optional and configurable
-- **Status:** In Progress
-- **Current slice:** internal MarkItDown preprocessing now exists behind `extract_document_candidate_facts`; broader MCP / external-source integration remains pending
-
----
-
-## Completed (Reference Only)
+  - ✅ a configured MCP advisory source tool can be invoked through the extraction path
+  - ✅ external data enters candidate-fact path (never confirmed directly)
+  - ✅ integration is optional and configurable
+- **Status:** Complete
+- **Completed slice:** internal MarkItDown preprocessing plus a config-gated MCP advisory source adapter behind `extract_document_candidate_facts`
 
 All BL-001 through BL-026 are complete. See `docs/backlog-archive.md` for historical details.
 
-Phase 8 agent-boundary cleanup, formal extraction-agent split, and planner-advisory slices are complete on the branch; Phase 9 has now started with internal MarkItDown preprocessing on the document-assisted extraction path.
+Phase 8 agent-boundary cleanup, formal extraction-agent split, planner-advisory slices, and the narrow Phase 9 advisory MCP ingestion path are complete on the branch.
 
 **MVP Done Criteria:** ✅ Satisfied
 

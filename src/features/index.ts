@@ -1,6 +1,7 @@
 export * from "./background-solution-review-workflow"
 export * from "./device-cabling-planner"
 export * from "./device-port-plan-planner"
+export * from "./document-source-advisory-mcp"
 export * from "./draft-topology-model"
 export * from "./extract-document-candidate-facts"
 export * from "./export-artifact-bundle"

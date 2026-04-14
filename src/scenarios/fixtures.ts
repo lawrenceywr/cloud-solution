@@ -815,6 +815,96 @@ export function createScn05PromotedDocumentAssistFixture() {
   }
 }
 
+export function createPhase09AdvisoryRequirementSourceRefsFixture() {
+  return [
+    {
+      kind: "inventory" as const,
+      ref: "cmdb/services/document-public-service",
+      note: "CMDB service inventory record",
+    },
+    {
+      kind: "system" as const,
+      ref: "topology/fabric/document-public-service",
+      note: "Topology system network summary",
+    },
+  ]
+}
+
+export function createPhase09DocumentExtractionInputFixture() {
+  const draftFixture = createScn05DocumentExtractionInputFixture()
+
+  return {
+    requirement: {
+      ...draftFixture.requirement,
+      sourceRefs: [
+        ...draftFixture.requirement.sourceRefs,
+        ...createPhase09AdvisoryRequirementSourceRefsFixture(),
+      ],
+    },
+    documentAssist: draftFixture.documentAssist,
+  }
+}
+
+export function createPhase09AdvisorySourcesFixture() {
+  const [inventorySource, systemSource] = createPhase09AdvisoryRequirementSourceRefsFixture()
+
+  return [
+    {
+      sourceRef: inventorySource,
+      advisoryText:
+        "The CMDB inventory lists a service network named Document Public Service with CIDR 10.50.0.0/24.",
+    },
+    {
+      sourceRef: systemSource,
+      advisoryText:
+        "The topology system reports a service endpoint document-api on the Document Public Service network at 10.50.0.10.",
+    },
+  ]
+}
+
+export function createPhase09ExtractedCandidateFactsFixture() {
+  const draftFixture = createScn05DocumentAssistedDraftFixture()
+  const [inventorySource, systemSource] = createPhase09AdvisoryRequirementSourceRefsFixture()
+
+  return {
+    racks: [],
+    devices: [],
+    links: [],
+    segments: draftFixture.documentAssist.candidateFacts.segments.map((segment) => ({
+      ...segment,
+      sourceRefs: [inventorySource],
+    })),
+    allocations: draftFixture.documentAssist.candidateFacts.allocations.map((allocation) => ({
+      ...allocation,
+      sourceRefs: [systemSource],
+    })),
+  }
+}
+
+export function createPhase09DocumentAssistedDraftFixture() {
+  const extractionInput = createPhase09DocumentExtractionInputFixture()
+
+  return {
+    requirement: extractionInput.requirement,
+    documentAssist: {
+      documentSources: extractionInput.documentAssist.documentSources,
+      candidateFacts: createPhase09ExtractedCandidateFactsFixture(),
+    },
+  }
+}
+
+export function createPhase09PromotedDocumentAssistFixture() {
+  return {
+    ...createPhase09DocumentAssistedDraftFixture(),
+    confirmation: {
+      entityRefs: [
+        "segment:segment-document-public-service",
+        "allocation:allocation-document-public-service-10-50-0-10",
+      ],
+    },
+  }
+}
+
 export function createScn06MultiDocumentConflictFixture() {
   return {
     requirement: {
