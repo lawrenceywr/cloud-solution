@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test"
 
 import {
+  createPhase09AdvisorySourcesFixture,
+  createPhase09DocumentExtractionInputFixture,
+  createPhase09ExtractedCandidateFactsFixture,
   createScn05DocumentAssistedDraftFixture,
   createScn05DocumentExtractionInputFixture,
   createScn05ExtractedCandidateFactsFixture,
@@ -153,6 +156,39 @@ describe("document-assisted-extraction worker", () => {
     )
 
     expect(result.status).toBe("failed")
-    expect(result.errors?.every((error) => error.includes("outside the supplied documentSources"))).toBe(true)
+    expect(result.errors?.every((error) => error.includes("outside the supplied extraction sources"))).toBe(true)
+  })
+
+  test("allows extracted candidate facts to cite approved advisory inventory/system sources", async () => {
+    const extractionInput = createPhase09DocumentExtractionInputFixture()
+    const advisorySources = createPhase09AdvisorySourcesFixture()
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-assisted-extraction",
+          status: "success",
+          output: {
+            candidateFacts: createPhase09ExtractedCandidateFactsFixture(),
+            extractionWarnings: ["External topology source omitted rack placement details."],
+          },
+          recommendations: ["draft_topology_model"],
+        }),
+      ],
+    })
+
+    const result = await executeDocumentAssistedExtractionWorker(
+      {
+        requirement: extractionInput.requirement,
+        documentSources: extractionInput.documentAssist.documentSources,
+        advisorySources,
+      },
+      createWorkerRuntimeContext(client),
+    )
+
+    expect(result.status).toBe("success")
+    expect(DocumentAssistedExtractionOutput.parse(result.output)).toEqual({
+      candidateFacts: createPhase09ExtractedCandidateFactsFixture(),
+      extractionWarnings: ["External topology source omitted rack placement details."],
+    })
   })
 })

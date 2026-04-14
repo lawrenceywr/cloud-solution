@@ -39,6 +39,8 @@ const DraftPreparationSchema = z.object({
 
 type StructuredInput = z.infer<typeof StructuredSolutionInputSchema>["structuredInput"]
 
+const CandidateFactSourceKinds = new Set(["document", "diagram", "image", "inventory", "system"])
+
 type PrepareDraftSolutionInputArgs = {
   input: unknown
   allowDocumentAssist: boolean
@@ -56,8 +58,7 @@ function hasNonEmptyCanonicalEntities(input: Record<string, unknown>): boolean {
     .some((field) => Array.isArray(input[field]) && input[field].length > 0)
 }
 
-function hasDocumentBasedFacts(input: Record<string, unknown>): boolean {
-  const documentKinds = new Set(["document", "diagram", "image"])
+function hasCandidateFactSourceBasedFacts(input: Record<string, unknown>): boolean {
   const checkEntity = (entity: unknown): boolean => {
     if (typeof entity !== "object" || entity === null) {
       return false
@@ -66,17 +67,16 @@ function hasDocumentBasedFacts(input: Record<string, unknown>): boolean {
     const statusConfidence = record.statusConfidence as string
     const sourceRefs = Array.isArray(record.sourceRefs) ? record.sourceRefs : []
     
-    // Check if entity has inferred/unresolved confidence with document-based source
     const hasInferredStatus = statusConfidence === "inferred" || statusConfidence === "unresolved"
-    const hasDocumentSource = sourceRefs.some((ref: unknown) => {
+    const hasCandidateFactSource = sourceRefs.some((ref: unknown) => {
       if (typeof ref !== "object" || ref === null) {
         return false
       }
       const refRecord = ref as Record<string, unknown>
-      return documentKinds.has(refRecord.kind as string)
+      return CandidateFactSourceKinds.has(refRecord.kind as string)
     })
     
-    return hasInferredStatus && hasDocumentSource
+    return hasInferredStatus && hasCandidateFactSource
   }
   
   const checkArray = (entities: unknown): boolean => {
@@ -174,7 +174,9 @@ function mergeDocumentSourcesIntoStructuredInput(args: {
   structuredInput: StructuredInput
   documentSources: SourceReference[]
 }): StructuredInput {
-  const mergeRefs = (sourceRefs: SourceReference[]) => uniqueSourceRefs([...sourceRefs, ...args.documentSources])
+  const mergeRefs = (sourceRefs: SourceReference[]) => sourceRefs.length > 0
+    ? uniqueSourceRefs(sourceRefs)
+    : uniqueSourceRefs(args.documentSources)
 
   return {
     racks: args.structuredInput.racks.map((rack) => ({
@@ -269,7 +271,6 @@ function applyDraftConfidenceDefaults(rawStructuredInput: unknown): StructuredIn
 }
 
 function buildCandidateFacts(input: CloudSolutionSliceInput): CandidateFact[] {
-  const documentKinds = new Set(["document", "diagram", "image"])
   const subjects = [
     ...input.devices.map((device) => ({
       subjectType: "device" as const,
@@ -310,7 +311,7 @@ function buildCandidateFacts(input: CloudSolutionSliceInput): CandidateFact[] {
   ]
 
   return subjects
-    .filter((subject) => subject.sourceRefs.some((sourceRef) => documentKinds.has(sourceRef.kind)))
+    .filter((subject) => subject.sourceRefs.some((sourceRef) => CandidateFactSourceKinds.has(sourceRef.kind)))
     .map((subject) => CandidateFactSchema.parse({
       entityRef: `${subject.subjectType}:${subject.subjectId}`,
       subjectType: subject.subjectType,
@@ -393,8 +394,8 @@ export function prepareDraftSolutionInput(
   const hasDraftKeys = "structuredInput" in rawInput || "documentAssist" in rawInput || "confirmation" in rawInput
   if (!hasDraftKeys) {
     // Check if input contains entities with document-based inferred/unresolved confidence
-    if (hasDocumentBasedFacts(rawInputRecord)) {
-      // Treat as a candidate fact draft even without explicit documentAssist wrapper
+      if (hasCandidateFactSourceBasedFacts(rawInputRecord)) {
+        // Treat as a candidate fact draft even without explicit documentAssist wrapper
       const normalizedInput = CloudSolutionSliceInputSchema.parse(rawInput)
       const candidateFacts = buildCandidateFacts(normalizedInput)
       const confirmationSummary = CandidateFactConfirmationSummarySchema.parse({})

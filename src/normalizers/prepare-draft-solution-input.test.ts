@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test"
 
 import {
+  createPhase09DocumentAssistedDraftFixture,
+  createPhase09PromotedDocumentAssistFixture,
   createScn05DocumentAssistedDraftFixture,
   createScn05PromotedDocumentAssistFixture,
 } from "../scenarios/fixtures"
@@ -43,6 +45,64 @@ describe("prepareDraftSolutionInput", () => {
   test("applies explicit confirmations deterministically", () => {
     const result = prepareDraftSolutionInput({
       input: createScn05PromotedDocumentAssistFixture(),
+      allowDocumentAssist: true,
+    })
+
+    expect(result.inputState).toBe("confirmed_slice")
+    expect(result.normalizedInput.segments[0]?.statusConfidence).toBe("confirmed")
+    expect(result.normalizedInput.allocations[0]?.statusConfidence).toBe("confirmed")
+    expect(result.confirmationSummary).toEqual({
+      requestedEntityRefs: [
+        "allocation:allocation-document-public-service-10-50-0-10",
+        "segment:segment-document-public-service",
+      ],
+      confirmedEntityRefs: [
+        "allocation:allocation-document-public-service-10-50-0-10",
+        "segment:segment-document-public-service",
+      ],
+      pendingEntityRefs: [],
+      missingEntityRefs: [],
+    })
+  })
+
+  test("treats advisory inventory/system provenance as candidate-fact evidence", () => {
+    const result = prepareDraftSolutionInput({
+      input: createPhase09DocumentAssistedDraftFixture(),
+      allowDocumentAssist: true,
+    })
+
+    expect(result.inputState).toBe("candidate_fact_draft")
+    expect(result.candidateFacts).toEqual([
+      expect.objectContaining({
+        entityRef: "allocation:allocation-document-public-service-10-50-0-10",
+        statusConfidence: "unresolved",
+        requiresConfirmation: true,
+      }),
+      expect.objectContaining({
+        entityRef: "segment:segment-document-public-service",
+        statusConfidence: "inferred",
+        requiresConfirmation: true,
+      }),
+    ])
+    expect(result.normalizedInput.segments[0]?.sourceRefs).toEqual([
+      {
+        kind: "inventory",
+        ref: "cmdb/services/document-public-service",
+        note: "CMDB service inventory record",
+      },
+    ])
+    expect(result.normalizedInput.allocations[0]?.sourceRefs).toEqual([
+      {
+        kind: "system",
+        ref: "topology/fabric/document-public-service",
+        note: "Topology system network summary",
+      },
+    ])
+  })
+
+  test("applies explicit confirmations for advisory inventory/system-backed candidate facts", () => {
+    const result = prepareDraftSolutionInput({
+      input: createPhase09PromotedDocumentAssistFixture(),
       allowDocumentAssist: true,
     })
 

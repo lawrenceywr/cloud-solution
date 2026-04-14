@@ -169,11 +169,8 @@ The branch now has six formal child-agent modules and their worker/feature adapt
 5. `src/agents/solution-review-assistant.ts` runs the review-assistant child agent.
 6. `src/agents/document-assisted-extraction.ts` plus the 4 planner agents in `src/agents/` own the extraction/planning child-session contracts.
 
-That means the codebase now has an explicit multi-worker review path, a formal extraction agent split, a document-provenanced candidate-fact draft/promote path, a wired evidence-reconciliation step, and four advisory planner slices that feed back into `draft_topology_model`. Final artifact generation is still deterministic, and external integration layers are not implemented.
+That means the codebase now has an explicit multi-worker review path, a formal extraction agent split, a document-provenanced candidate-fact draft/promote path, a wired evidence-reconciliation step, four advisory planner slices that feed back into `draft_topology_model`, and a narrow config-gated MCP advisory source adapter behind `extract_document_candidate_facts`. Final artifact generation is still deterministic, and external evidence still re-enters through draft confirmation and validation instead of bypassing the trust boundary.
 
-The roadmap MVP done criteria are now satisfied on this branch.
+The roadmap MVP done criteria and the current Phase 9 done criteria are now satisfied on this branch.
 
-The next development focus is now the remaining post-MVP work:
-
-1. define Phase 9 scope around MCP / external integrations
-2. add MCP / external-system integrations only after the extraction + planner path is stable
+There is no active roadmap phase at the moment. Future work can broaden external adapters beyond the landed advisory MCP slice if later scenarios need more than the current extraction path.

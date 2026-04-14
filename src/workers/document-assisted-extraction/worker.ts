@@ -8,12 +8,13 @@ import {
   DocumentAssistedExtractionOutputSchema,
   runDocumentAssistedExtractionInChildSession,
 } from "../../agents"
+import type { AdvisorySourceEvidence } from "../../agents/document-source-advisory-mcp"
 import type { ConvertedDocumentSource } from "../../agents/document-source-markdown"
 import type { SubsessionProtocolResult } from "../../coordinator/subsession-protocol"
 import { StructuredSolutionInputSchema } from "../../normalizers/normalize-structured-solution-input"
 
-const DocumentSourceSchema = SourceReferenceSchema.extend({
-  kind: z.enum(["document", "diagram", "image"]),
+const ExtractionSourceSchema = SourceReferenceSchema.extend({
+  kind: z.enum(["document", "diagram", "image", "inventory", "system"]),
 })
 
 const ExtractedCandidateFactsSchema = StructuredSolutionInputSchema.shape.structuredInput
@@ -22,34 +23,48 @@ export type DocumentAssistedExtractionInput = {
   requirement: SolutionRequirement
   documentSources: SourceReference[]
   convertedDocuments?: ConvertedDocumentSource[]
+  advisorySources?: AdvisorySourceEvidence[]
 }
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values)]
 }
 
+function uniqueSourceRefs(sourceRefs: SourceReference[]): SourceReference[] {
+  const entries = new Map<string, SourceReference>()
+
+  for (const sourceRef of sourceRefs) {
+    const key = `${sourceRef.kind}:${sourceRef.ref}:${sourceRef.note ?? ""}`
+    if (!entries.has(key)) {
+      entries.set(key, sourceRef)
+    }
+  }
+
+  return [...entries.values()]
+}
+
 function validateExtractedCandidateFacts(args: {
   candidateFacts: z.infer<typeof ExtractedCandidateFactsSchema>
-  documentSources: SourceReference[]
+  allowedSourceRefs: SourceReference[]
 }): string[] {
   const allowedSourceKeys = new Set(
-    args.documentSources.map((sourceRef) => `${sourceRef.kind}:${sourceRef.ref}:${sourceRef.note ?? ""}`),
+    args.allowedSourceRefs.map((sourceRef) => `${sourceRef.kind}:${sourceRef.ref}:${sourceRef.note ?? ""}`),
   )
   const errors: string[] = []
 
   const validateSourceRefs = (entityRef: string, sourceRefs: SourceReference[]) => {
     if (sourceRefs.length === 0) {
-      errors.push(`${entityRef} must include at least one document sourceRef.`)
+      errors.push(`${entityRef} must include at least one extraction sourceRef.`)
       return
     }
 
     for (const sourceRef of sourceRefs) {
       const key = `${sourceRef.kind}:${sourceRef.ref}:${sourceRef.note ?? ""}`
       if (!allowedSourceKeys.has(key)) {
-        errors.push(`${entityRef} includes a sourceRef outside the supplied documentSources.`)
+        errors.push(`${entityRef} includes a sourceRef outside the supplied extraction sources.`)
       }
-      if (!DocumentSourceSchema.safeParse(sourceRef).success) {
-        errors.push(`${entityRef} includes a non-document sourceRef kind.`)
+      if (!ExtractionSourceSchema.safeParse(sourceRef).success) {
+        errors.push(`${entityRef} includes a non-advisory sourceRef kind.`)
       }
     }
   }
@@ -107,6 +122,7 @@ export async function executeDocumentAssistedExtractionWorkerSubsession(
       requirement: input.requirement,
       documentSources: input.documentSources,
       convertedDocuments: input.convertedDocuments,
+      advisorySources: input.advisorySources,
     }),
     runtime,
   })
@@ -117,7 +133,10 @@ export async function executeDocumentAssistedExtractionWorkerSubsession(
 
   const validationErrors = validateExtractedCandidateFacts({
     candidateFacts: result.result.output.candidateFacts,
-    documentSources: input.documentSources,
+    allowedSourceRefs: uniqueSourceRefs([
+      ...input.documentSources,
+      ...(input.advisorySources ?? []).map((advisorySource) => advisorySource.sourceRef),
+    ]),
   })
   if (validationErrors.length === 0) {
     return result

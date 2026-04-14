@@ -1,26 +1,31 @@
 # Progress Snapshot
 
-**Last Updated:** 2026-04-13  
-**Status:** MVP Complete → Phase 9 In Progress
+**Last Updated:** 2026-04-14  
+**Status:** MVP Complete → Phase 9 Complete
 
 ---
 
 ## Current Stage
 
-✅ **Phase 8 Complete** - Agent boundary cleanup, formal extraction agent split, and four advisory planner slices implemented.
+✅ **Phase 9 Complete** - internal MarkItDown preprocessing plus optional config-gated MCP advisory source ingestion now land behind `extract_document_candidate_facts`.
 
-🟡 **Active Work:** Phase 9 (MCP / External Integrations) - started with internal MarkItDown preprocessing on the document-assisted extraction path.
+✅ **Current Status:** all roadmap phases through Phase 9 are complete on this branch.
 
 ---
 
 ## Completed Capabilities
 
-### MarkItDown Extraction Preprocessing (NEW 🟡)
+### MCP Advisory Source Ingestion (NEW ✅)
+- ✅ `extract_document_candidate_facts` can now pull advisory external evidence from approved `inventory` / `system` requirement source refs through a configured MCP tool
+- ✅ external retrieval is optional and disabled unless `document_assist_advisory_source_tool_name` is configured
+- ✅ extraction child sessions may cite only supplied document sources or approved advisory external source refs
+- ✅ draft preparation now keeps advisory `inventory` / `system` provenance visible to the candidate-fact confirmation flow
+
+### MarkItDown Extraction Preprocessing (NEW ✅)
 - ✅ `extract_document_candidate_facts` now performs an internal markdown-preparation step before document-assisted extraction
 - ✅ converted markdown stays advisory and never replaces original `documentSources` as provenance anchors
 - ✅ the markdown-preparation child session now explicitly requests `markitdown_convert_to_markdown`
 - ✅ forged `sourceRef` markdown payloads and blank markdown outputs are rejected back into warnings/fallback behavior
-- ⏳ broader Phase 9 MCP / external-system integration is still pending
 
 ### Agent Boundary & Planner Advisory Layer (NEW ✅)
 - ✅ `extract_document_candidate_facts`, `draft_topology_model`, and `summarize_design_gaps` now route through `src/features/`
@@ -75,9 +80,9 @@
 
 ---
 
-## Next Up (Not Started)
+## Future Options (Unscheduled)
 
-1. **Broaden Phase 9 MCP integrations** - beyond the current internal MarkItDown preprocessing slice
+1. **Broaden external adapters beyond the landed advisory MCP slice** only if a later roadmap phase needs more than `extract_document_candidate_facts`
 2. **Decide whether MarkItDown should remain extraction-only or become a reusable internal adapter for other evidence flows**
 
 ---
@@ -119,17 +124,21 @@ Reference full docs only when implementing specific features.
 
 ---
 
-## Phase 9 Current Slice Summary
+## Phase 9 Summary
 
 **Started:** 2026-04-13  
-**Focus:** internal MarkItDown preprocessing for `extract_document_candidate_facts`  
-**Verification:** `bun test` (249/249), `bun run typecheck`, `bun run build`, plus manual QA of the two-step markdown-prep → extraction path
+**Completed:** 2026-04-14  
+**Focus:** internal MarkItDown preprocessing plus config-gated advisory MCP source ingestion for `extract_document_candidate_facts`  
+**Verification:** `bun test` (258/258), `bun run typecheck`, `bun run build`, plus manual QA of the runtime extraction → draft path with advisory MCP retrieval enabled
 
 **Key Deliverables:**
 - internal `document-source-markdown` child-session contract
+- internal `document-source-advisory-mcp` child-session contract
 - feature-owned markdown preprocessing before extraction worker handoff
+- feature-owned advisory external-source filtering before extraction worker handoff
 - explicit MarkItDown tool allowlist for the markdown-prep child session
-- advisory markdown filtering that keeps original `documentSources` as the provenance anchor
+- explicit advisory MCP tool allowlist for approved requirement source refs
+- draft preparation that keeps advisory `inventory` / `system` provenance visible to confirmation instead of laundering it into document-only flows
 
 ---
 

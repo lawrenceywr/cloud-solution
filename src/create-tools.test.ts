@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test"
 
 import {
+  createPhase09AdvisorySourcesFixture,
+  createPhase09DocumentExtractionInputFixture,
+  createPhase09ExtractedCandidateFactsFixture,
   createScn01SingleRackConnectivityFixture,
   createScn05DocumentAssistedDraftFixture,
   createScn05DocumentExtractionInputFixture,
@@ -495,6 +498,81 @@ describe("createTools", () => {
         createTestToolContext({ sessionID: "tool-test-session" }),
       ),
     ).rejects.toThrow("Document-assisted drafting is disabled by plugin config.")
+  })
+
+  test("extract_document_candidate_facts uses configured advisory external-source retrieval when enabled", async () => {
+    const config = {
+      ...loadPluginConfig(process.cwd()),
+      document_assist_advisory_source_tool_name: "query_external_solution_source" as const,
+    }
+    const fixture = createPhase09DocumentExtractionInputFixture()
+    const { client, createCalls, promptCalls } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: fixture.documentAssist.documentSources[0],
+                markdown: "# Supporting network design\n\nConverted with MarkItDown.",
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+        JSON.stringify({
+          workerId: "document-source-advisory-mcp",
+          status: "success",
+          output: {
+            advisorySources: createPhase09AdvisorySourcesFixture(),
+            advisoryWarnings: [],
+          },
+          recommendations: [],
+        }),
+        JSON.stringify({
+          workerId: "document-assisted-extraction",
+          status: "success",
+          output: {
+            candidateFacts: createPhase09ExtractedCandidateFactsFixture(),
+            extractionWarnings: [],
+          },
+          recommendations: ["draft_topology_model"],
+        }),
+      ],
+    })
+    const managers = createManagers({
+      context: { directory: process.cwd(), worktree: process.cwd(), client },
+      pluginConfig: config,
+    })
+
+    const tools = createTools({
+      pluginConfig: config,
+      managers,
+      context: { directory: process.cwd(), worktree: process.cwd(), client },
+    })
+
+    const response = await tools.extract_document_candidate_facts.execute(
+      fixture,
+      createTestToolContext({ sessionID: "tool-test-session" }),
+    )
+    const parsed = JSON.parse(response)
+
+    expect(createCalls).toHaveLength(3)
+    expect(promptCalls).toHaveLength(3)
+    expect(promptCalls[1]).toEqual(
+      expect.objectContaining({
+        body: expect.objectContaining({
+          tools: expect.objectContaining({
+            query_external_solution_source: true,
+          }),
+        }),
+      }),
+    )
+    expect(parsed.draftInput.documentAssist.candidateFacts).toEqual(
+      createPhase09ExtractedCandidateFactsFixture(),
+    )
   })
 
   test("extract_document_candidate_facts rejects absolute document source paths", async () => {

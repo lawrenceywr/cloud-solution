@@ -1,10 +1,12 @@
 import { z } from "zod"
+import { existsSync, realpathSync, statSync } from "node:fs"
 import path from "node:path"
 
 import type { CloudSolutionConfig } from "../config"
 import { SolutionRequirementSchema, SourceReferenceSchema } from "../domain"
 import type { WorkerRuntimeContext } from "../coordinator/types"
 import { StructuredSolutionInputSchema } from "../normalizers/normalize-structured-solution-input"
+import { prepareRequirementAdvisorySources } from "./document-source-advisory-mcp"
 import { prepareDocumentSourcesAsMarkdown } from "./document-source-markdown"
 import { executeDocumentAssistedExtractionWorkerSubsession } from "../workers/document-assisted-extraction"
 
@@ -36,6 +38,8 @@ function normalizeDocumentSourceRefs(args: {
   documentSources: z.infer<typeof DocumentSourceSchema>[]
   rootDirectory: string
 }) {
+  const canonicalRootDirectory = realpathSync(args.rootDirectory)
+
   return args.documentSources.map((sourceRef) => {
     if (path.isAbsolute(sourceRef.ref)) {
       throw new Error("documentSources[].ref must be relative to the current workspace.")
@@ -45,6 +49,25 @@ function normalizeDocumentSourceRefs(args: {
     const relativeRef = path.relative(args.rootDirectory, resolvedRef)
     if (relativeRef === "" || relativeRef.startsWith("..") || path.isAbsolute(relativeRef)) {
       throw new Error("documentSources[].ref must stay within the current workspace.")
+    }
+
+    if (!existsSync(resolvedRef)) {
+      throw new Error("documentSources[].ref must point to an existing file within the current workspace.")
+    }
+
+    const canonicalResolvedRef = realpathSync(resolvedRef)
+    const canonicalRelativeRef = path.relative(canonicalRootDirectory, canonicalResolvedRef)
+    if (
+      canonicalRelativeRef === ""
+      || canonicalRelativeRef.startsWith("..")
+      || path.isAbsolute(canonicalRelativeRef)
+    ) {
+      throw new Error("documentSources[].ref must not resolve outside the current workspace.")
+    }
+
+    const sourceStat = statSync(canonicalResolvedRef)
+    if (!sourceStat.isFile()) {
+      throw new Error("documentSources[].ref must point to a file within the current workspace.")
     }
 
     return {
@@ -75,16 +98,24 @@ export async function runExtractDocumentCandidateFacts(args: {
     )
   }
 
-  const markdownPreparation = await prepareDocumentSourcesAsMarkdown({
-    documentSources: normalizedDocumentSources,
-    runtime: args.runtime,
-  })
+  const [markdownPreparation, advisoryPreparation] = await Promise.all([
+    prepareDocumentSourcesAsMarkdown({
+      documentSources: normalizedDocumentSources,
+      runtime: args.runtime,
+    }),
+    prepareRequirementAdvisorySources({
+      requirement: parsedInput.requirement,
+      pluginConfig: args.pluginConfig,
+      runtime: args.runtime,
+    }),
+  ])
 
   const extractionResult = await executeDocumentAssistedExtractionWorkerSubsession(
     {
       requirement: parsedInput.requirement,
       documentSources: normalizedDocumentSources,
       convertedDocuments: markdownPreparation.convertedDocuments,
+      advisorySources: advisoryPreparation.advisorySources,
     },
     args.runtime,
   )
@@ -107,6 +138,7 @@ export async function runExtractDocumentCandidateFacts(args: {
     },
     extractionWarnings: uniqueStrings([
       ...markdownPreparation.conversionWarnings,
+      ...advisoryPreparation.advisoryWarnings,
       ...extractionResult.result.output.extractionWarnings,
       ...(extractionResult.result.errors ?? []),
     ]),

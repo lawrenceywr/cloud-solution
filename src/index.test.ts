@@ -1,14 +1,47 @@
-import { describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, test } from "bun:test"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 
 import { createCloudSolutionRuntime } from "./index"
 import {
   createScn01SingleRackConnectivityFixture,
+  createPhase09AdvisorySourcesFixture,
+  createPhase09DocumentExtractionInputFixture,
+  createPhase09ExtractedCandidateFactsFixture,
   createScn05DocumentAssistedDraftFixture,
   createScn05DocumentExtractionInputFixture,
   createScn05ExtractedCandidateFactsFixture,
   createScn05PromotedDocumentAssistFixture,
 } from "./scenarios/fixtures"
 import { createFakeCoordinatorClient } from "./test-helpers/fake-coordinator-client"
+
+const createdDirectories: string[] = []
+
+function writeDocumentFixtureFiles(directory: string): void {
+  const fixtureDirectory = join(directory, "fixtures")
+  mkdirSync(fixtureDirectory, { recursive: true })
+  writeFileSync(join(fixtureDirectory, "scn-05-supporting-design.pdf"), "SCN-05 supporting design")
+  writeFileSync(
+    join(fixtureDirectory, "scn-05-topology-diagram.drawio"),
+    "<mxfile host=\"app.diagrams.net\"><diagram id=\"scn-05\">placeholder</diagram></mxfile>",
+  )
+  writeFileSync(join(fixtureDirectory, "runtime-roundtrip-supporting.pdf"), "Runtime roundtrip")
+  writeFileSync(join(fixtureDirectory, "captured-supporting-design.pdf"), "Captured supporting design")
+}
+
+function createTempProject(): string {
+  const directory = mkdtempSync(join(tmpdir(), "cloud-solution-runtime-"))
+  writeDocumentFixtureFiles(directory)
+  createdDirectories.push(directory)
+  return directory
+}
+
+afterEach(() => {
+  for (const directory of createdDirectories.splice(0)) {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
 
 function createPhysicalRuntimeInput() {
   return {
@@ -562,6 +595,86 @@ describe("createCloudSolutionRuntime", () => {
     })
     const draftParsed = JSON.parse(draftResult)
 
+    expect(draftParsed.inputState).toBe("candidate_fact_draft")
+    expect(draftParsed.candidateFacts).toHaveLength(2)
+  })
+
+  test("loads configured advisory external-source retrieval through the runtime kernel", async () => {
+    const projectDirectory = createTempProject()
+    const projectConfigDir = join(projectDirectory, ".opencode")
+    mkdirSync(projectConfigDir, { recursive: true })
+    writeFileSync(
+      join(projectConfigDir, "cloud-solution.jsonc"),
+      JSON.stringify({
+        document_assist_advisory_source_tool_name: "query_external_solution_source",
+      }),
+    )
+
+    const fixture = createPhase09DocumentExtractionInputFixture()
+    const { client, promptCalls } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: fixture.documentAssist.documentSources[0],
+                markdown: "# Runtime supporting design\n\nConverted with MarkItDown.",
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+        JSON.stringify({
+          workerId: "document-source-advisory-mcp",
+          status: "success",
+          output: {
+            advisorySources: createPhase09AdvisorySourcesFixture(),
+            advisoryWarnings: [],
+          },
+          recommendations: [],
+        }),
+        JSON.stringify({
+          workerId: "document-assisted-extraction",
+          status: "success",
+          output: {
+            candidateFacts: createPhase09ExtractedCandidateFactsFixture(),
+            extractionWarnings: [],
+          },
+          recommendations: ["draft_topology_model"],
+        }),
+      ],
+    })
+    const runtime = createCloudSolutionRuntime(projectDirectory, {
+      worktree: projectDirectory,
+      client,
+    })
+
+    const extractResult = await runtime.kernel.invokeTool({
+      toolName: "extract_document_candidate_facts",
+      sessionID: "runtime-phase09-extract",
+      args: fixture,
+    })
+    const extractParsed = JSON.parse(extractResult)
+    const draftResult = await runtime.kernel.invokeTool({
+      toolName: "draft_topology_model",
+      sessionID: "runtime-phase09-draft",
+      args: extractParsed.draftInput,
+    })
+    const draftParsed = JSON.parse(draftResult)
+
+    expect(promptCalls.length).toBeGreaterThanOrEqual(3)
+    expect(promptCalls[1]).toEqual(
+      expect.objectContaining({
+        body: expect.objectContaining({
+          tools: expect.objectContaining({
+            query_external_solution_source: true,
+          }),
+        }),
+      }),
+    )
     expect(draftParsed.inputState).toBe("candidate_fact_draft")
     expect(draftParsed.candidateFacts).toHaveLength(2)
   })
