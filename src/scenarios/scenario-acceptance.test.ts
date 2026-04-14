@@ -11,6 +11,7 @@ import {
   createScn05ExtractedCandidateFactsFixture,
   createScn05PromotedDocumentAssistFixture,
   createScn06MultiDocumentConflictFixture,
+  createScn07GuardedExportFixture,
 } from "./fixtures"
 import { createFakeCoordinatorClient } from "../test-helpers/fake-coordinator-client"
 
@@ -478,5 +479,73 @@ describe("scenario acceptance", () => {
     expect(review.designGapSummary.hasBlockingConflicts).toBe(true)
     expect(review.designGapSummary.blockingConflictCount).toBeGreaterThan(0)
     expect(review.exportReady).toBe(false)
+  })
+
+  test("SCN-07 keeps low-confidence and incomplete inputs out of export-ready runtime paths", async () => {
+    const lowConfidenceFixture = createScn07GuardedExportFixture()
+    const runtime = createCloudSolutionRuntime(process.cwd())
+
+    await expect(
+      runtime.kernel.invokeTool({
+        toolName: "export_artifact_bundle",
+        sessionID: "scenario-scn07-low-confidence-export",
+        args: lowConfidenceFixture,
+      }),
+    ).rejects.toThrow("requires confirmation for inferred or unresolved facts")
+
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "requirements-clarification",
+          status: "success",
+          output: {
+            missingFields: [],
+            clarificationQuestions: [],
+            suggestions: [],
+          },
+          recommendations: ["No clarification needed"],
+        }),
+        JSON.stringify({
+          workerId: "solution-review-assistant",
+          status: "success",
+          output: {
+            finalResponse: "Review the inferred server details before export.",
+            nextActions: ["review_assumptions"],
+          },
+          recommendations: ["review_assumptions"],
+        }),
+      ],
+    })
+    const reviewRuntime = createCloudSolutionRuntime(process.cwd(), {
+      worktree: process.cwd(),
+      client,
+    })
+    const reviewResult = await reviewRuntime.kernel.invokeTool({
+      toolName: "start_solution_review_workflow",
+      sessionID: "scenario-scn07-review",
+      args: lowConfidenceFixture,
+    })
+    const reviewParsed = JSON.parse(reviewResult)
+
+    expect(reviewParsed.orchestrationState).toBe("review_required")
+    expect(reviewParsed.workflowState).toBe("review_required")
+
+    await expect(
+      runtime.kernel.invokeTool({
+        toolName: "export_artifact_bundle",
+        sessionID: "scenario-scn07-incomplete-export",
+        args: {
+          ...lowConfidenceFixture,
+          allocations: [],
+        },
+      }),
+    ).rejects.toThrow("Artifact bundle export is blocked by validation issues")
+
+    const cleanBundle = await invokeTool({
+      toolName: "export_artifact_bundle",
+      fixture: createScn01SingleRackConnectivityFixture(),
+    })
+
+    expect(cleanBundle.workflowState).toBe("export_ready")
   })
 })

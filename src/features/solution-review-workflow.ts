@@ -19,7 +19,7 @@ export type SolutionReviewWorkflowState =
   | "review_required"
   | "export_ready"
 
-type SolutionReviewWorkflowMode = "review" | "export"
+export type SolutionReviewWorkflowMode = "review" | "export"
 
 function getRelevantSubjectTypes(
   requestedArtifactTypes: ArtifactType[],
@@ -54,6 +54,8 @@ export type SolutionReviewWorkflowResult = {
   reviewSummary: DesignGapSummary
   bundle?: ArtifactBundleExport
 }
+
+export type EvaluatedSolutionReviewWorkflow = Omit<SolutionReviewWorkflowResult, "bundle">
 
 function ensureBundleArtifactRequests(args: {
   sliceInput: CloudSolutionSliceInput
@@ -90,11 +92,48 @@ export function runSolutionReviewWorkflow(args: {
   includeBundleWhenNotExportReady?: boolean
   conflicts?: Conflict[]
 }): SolutionReviewWorkflowResult {
+  const evaluation = evaluateSolutionReviewWorkflow(args)
+  const {
+    mode,
+    includeBundleWhenNotExportReady = false,
+  } = args
+
+  const bundle =
+    mode === "export"
+    && (evaluation.workflowState === "export_ready" || includeBundleWhenNotExportReady)
+      ? buildArtifactBundleExport({
+          input: evaluation.sliceInput,
+          issues: evaluation.issues,
+        })
+      : undefined
+
+  return {
+    ...evaluation,
+    bundle,
+  }
+}
+
+export function deriveSolutionReviewWorkflowState(args: {
+  validationSummary: ValidationSummary
+  reviewSummary: DesignGapSummary
+}): SolutionReviewWorkflowState {
+  return args.validationSummary.valid && !args.reviewSummary.hasBlockingConflicts
+    ? args.reviewSummary.reviewRequired
+      ? "review_required"
+      : "export_ready"
+    : "blocked"
+}
+
+export function evaluateSolutionReviewWorkflow(args: {
+  input: unknown
+  mode: SolutionReviewWorkflowMode
+  pluginConfig?: CloudSolutionConfig
+  conflicts?: Conflict[]
+}): EvaluatedSolutionReviewWorkflow {
   const {
     input,
     mode,
     pluginConfig,
-    includeBundleWhenNotExportReady = false,
     conflicts = [],
   } = args
   const normalizedInput = normalizeSolutionToolInput(input)
@@ -115,18 +154,10 @@ export function runSolutionReviewWorkflow(args: {
       relevantSubjectTypes: getRelevantSubjectTypes(requestedArtifactTypes),
       conflicts,
     })
-    const workflowState = validationSummary.valid && !reviewSummary.hasBlockingConflicts
-      ? reviewSummary.reviewRequired
-        ? "review_required"
-        : "export_ready"
-      : "blocked"
-    const bundle =
-      workflowState === "export_ready" || includeBundleWhenNotExportReady
-        ? buildArtifactBundleExport({
-            input: sliceInput,
-            issues,
-          })
-        : undefined
+    const workflowState = deriveSolutionReviewWorkflowState({
+      validationSummary,
+      reviewSummary,
+    })
 
     return {
       workflowState,
@@ -134,7 +165,6 @@ export function runSolutionReviewWorkflow(args: {
       issues,
       validationSummary,
       reviewSummary,
-      bundle,
     }
   }
 
@@ -145,11 +175,10 @@ export function runSolutionReviewWorkflow(args: {
   })
 
   return {
-    workflowState: validationSummary.valid && !reviewSummary.hasBlockingConflicts
-      ? reviewSummary.reviewRequired
-        ? "review_required"
-        : "export_ready"
-      : "blocked",
+    workflowState: deriveSolutionReviewWorkflowState({
+      validationSummary,
+      reviewSummary,
+    }),
     sliceInput,
     issues,
     validationSummary,

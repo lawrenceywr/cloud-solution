@@ -122,6 +122,7 @@ This directory now contains:
 - executable `SCN-04` cloud-allocation coverage in fixtures, validation, artifact generation, and scenario acceptance
 - executable `SCN-05` document-assisted candidate-fact drafting and confirmation coverage
 - executable `SCN-06` multi-document conflict coverage across drafting, review, and scenario acceptance
+- executable `SCN-07` guarded export coverage for low-confidence and incomplete runtime inputs
 - first front-door intake tools for `capture_solution_requirements` and `draft_topology_model`
 - explicit multi-worker review orchestration with dependency-ordered worker execution and worker-to-worker message passing
 - a deterministic evidence-reconciliation validator + worker wired into the review path
@@ -135,7 +136,7 @@ The current implementation covers:
 2. explicit IP allocation modeling and artifact generation
 3. explicit port connection modeling and artifact generation
 4. rack-aware `SCN-01` physical planning via device cabling and device port plan artifacts
-5. canonical scenario acceptance for `SCN-01` to `SCN-06`
+5. canonical scenario acceptance for `SCN-01` to `SCN-07`
 6. structured-input normalization before validation/tool execution
 7. review-ready assumptions/gaps reporting from validated model state
 8. export-ready artifact bundle packaging on top of validated/reviewed outputs
@@ -154,9 +155,9 @@ The current implementation covers:
 
 The current framework maturity is:
 
-1. plugin boot flow, runtime kernel, tool registry, and one pre-execution readiness guard are implemented
+1. plugin boot flow, runtime kernel, tool registry, and five pre-execution guard hooks are implemented
 2. tool-driven validation, artifact generation, review summary, workflow launch, `SCN-04` acceptance, requirement capture, and draft-topology intake are implemented end to end
-3. the review workflow now runs through explicit multi-worker orchestration on the existing coordinator substrate, the SCN-05 path includes document-assisted extraction, candidate-fact drafting, and explicit confirmation/promotion, the SCN-06 path adds blocking conflict detection through evidence reconciliation, and the post-MVP advisory planners now return draft structured input instead of final artifacts
+3. the review workflow now runs through explicit multi-worker orchestration on the existing coordinator substrate, the SCN-05 path includes document-assisted extraction, candidate-fact drafting, and explicit confirmation/promotion, the SCN-06 path adds blocking conflict detection through evidence reconciliation, the post-MVP advisory planners now return draft structured input instead of final artifacts, and Phase 10 adds runtime export/artifact guardrails plus `SCN-07` guarded export acceptance coverage
 
 ## Current Agent / Orchestration Status
 
@@ -169,8 +170,8 @@ The branch now has six formal child-agent modules and their worker/feature adapt
 5. `src/agents/solution-review-assistant.ts` runs the review-assistant child agent.
 6. `src/agents/document-assisted-extraction.ts` plus the 4 planner agents in `src/agents/` own the extraction/planning child-session contracts.
 
-That means the codebase now has an explicit multi-worker review path, a formal extraction agent split, a document-provenanced candidate-fact draft/promote path, a wired evidence-reconciliation step, four advisory planner slices that feed back into `draft_topology_model`, and a narrow config-gated MCP advisory source adapter behind `extract_document_candidate_facts`. Final artifact generation is still deterministic, and external evidence still re-enters through draft confirmation and validation instead of bypassing the trust boundary.
+That means the codebase now has an explicit multi-worker review path, a formal extraction agent split, a document-provenanced candidate-fact draft/promote path, a wired evidence-reconciliation step, four advisory planner slices that feed back into `draft_topology_model`, a narrow config-gated MCP advisory source adapter behind `extract_document_candidate_facts`, and a runtime guard chain that blocks low-confidence or incomplete export/artifact execution before those paths can appear export-ready. Final artifact generation is still deterministic, and external evidence still re-enters through draft confirmation and validation instead of bypassing the trust boundary.
 
-The roadmap MVP done criteria and the current Phase 9 done criteria are now satisfied on this branch.
+The roadmap MVP done criteria, the current Phase 9 done criteria, and the post-roadmap Phase 10 guardrail slice are now satisfied on this branch.
 
 There is no active roadmap phase at the moment. Future work can broaden external adapters beyond the landed advisory MCP slice if later scenarios need more than the current extraction path.

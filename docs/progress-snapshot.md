@@ -1,19 +1,24 @@
 # Progress Snapshot
 
 **Last Updated:** 2026-04-14  
-**Status:** MVP Complete → Phase 9 Complete
+**Status:** MVP Complete → Post-roadmap Phase 10 Complete
 
 ---
 
 ## Current Stage
 
-✅ **Phase 9 Complete** - internal MarkItDown preprocessing plus optional config-gated MCP advisory source ingestion now land behind `extract_document_candidate_facts`.
+✅ **Phase 10 Complete** - runtime guardrails now block missing-input, low-confidence, and invalid export paths before tool execution, and SCN-07 locks that behavior into acceptance coverage.
 
-✅ **Current Status:** all roadmap phases through Phase 9 are complete on this branch.
+✅ **Current Status:** all roadmap phases through Phase 9 are complete on this branch, and the post-roadmap Phase 10 guardrail slice is also complete.
 
 ---
 
 ## Completed Capabilities
+
+### Guardrail Hooks & SCN-07 (NEW ✅)
+- ✅ 4 new pre-execution hooks now exist: `missing-required-input-guard`, `artifact-generation-precheck`, `low-confidence-export-guard`, and `assumption-review-reminder`
+- ✅ runtime tool execution now reuses shared `blocked` / `review_required` / `export_ready` semantics before artifact/export tool execution proceeds
+- ✅ `SCN-07` now proves low-confidence export attempts are rejected, incomplete export attempts are rejected, and clean confirmed export still succeeds
 
 ### MCP Advisory Source Ingestion (NEW ✅)
 - ✅ `extract_document_candidate_facts` can now pull advisory external evidence from approved `inventory` / `system` requirement source refs through a configured MCP tool
@@ -71,6 +76,7 @@
 - ✅ SCN-04: Cloud IP allocation
 - ✅ SCN-05: Document-provenanced candidate facts + confirmation
 - ✅ SCN-06: Multi-document conflict detection and workflow blocking
+- ✅ SCN-07: Guarded export readiness for low-confidence and incomplete inputs
 
 ### Orchestration Layer
 - ✅ `src/coordinator/` - child-session protocol, dependency-ordered dispatch
@@ -121,6 +127,21 @@
 For new sessions, read **this file only** (~1k tokens) instead of full roadmap/backlog (~80k tokens).
 
 Reference full docs only when implementing specific features.
+
+---
+
+## Phase 10 Summary
+
+**Started:** 2026-04-14  
+**Completed:** 2026-04-14  
+**Focus:** guardrail hardening plus SCN-07 acceptance coverage for export readiness  
+**Verification:** `bun test` (272/272), `bun run typecheck`, `bun run build`, plus manual QA of low-confidence export rejection, incomplete export rejection, empty `documentAssist` rejection, clean export success, and SCN-07 review gating
+
+**Key Deliverables:**
+- 4 new runtime hook guards wired into the ordered pre-execution chain
+- shared workflow-state evaluation reused by runtime hooks instead of a second readiness model
+- canonical `SCN-07` fixture and acceptance coverage for guarded export readiness
+- runtime tests that now prove invalid artifact/export requests fail early instead of returning near-final blocked payloads
 
 ---
 

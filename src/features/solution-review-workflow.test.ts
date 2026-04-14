@@ -1,8 +1,14 @@
 import { describe, expect, test } from "bun:test"
 
-import { createScn01SingleRackConnectivityFixture } from "../scenarios/fixtures"
+import {
+  createScn01SingleRackConnectivityFixture,
+  createScn07GuardedExportFixture,
+} from "../scenarios/fixtures"
 import { loadPluginConfig } from "../plugin-config"
-import { runSolutionReviewWorkflow } from "./solution-review-workflow"
+import {
+  evaluateSolutionReviewWorkflow,
+  runSolutionReviewWorkflow,
+} from "./solution-review-workflow"
 
 describe("runSolutionReviewWorkflow", () => {
   test("returns export_ready for a clean exportable slice", () => {
@@ -85,5 +91,33 @@ describe("runSolutionReviewWorkflow", () => {
 
     expect(result.sliceInput.requirement.artifactRequests).toEqual(pluginConfig.default_artifacts)
     expect(result.bundle?.requestedArtifactTypes).toEqual(pluginConfig.default_artifacts)
+  })
+
+  test("evaluates low-confidence SCN-07 export input as review_required", () => {
+    const pluginConfig = loadPluginConfig(process.cwd())
+    const result = evaluateSolutionReviewWorkflow({
+      input: createScn07GuardedExportFixture(),
+      mode: "export",
+      pluginConfig,
+    })
+
+    expect(result.workflowState).toBe("review_required")
+    expect(result.validationSummary.valid).toBe(true)
+    expect(result.reviewSummary.assumptionCount).toBeGreaterThan(0)
+  })
+
+  test("evaluates incomplete SCN-07 export input as blocked", () => {
+    const pluginConfig = loadPluginConfig(process.cwd())
+    const result = evaluateSolutionReviewWorkflow({
+      input: {
+        ...createScn07GuardedExportFixture(),
+        allocations: [],
+      },
+      mode: "export",
+      pluginConfig,
+    })
+
+    expect(result.workflowState).toBe("blocked")
+    expect(result.validationSummary.valid).toBe(false)
   })
 })

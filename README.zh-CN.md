@@ -121,6 +121,7 @@ src/
 - `SCN-04` 的可执行 cloud-allocation fixture / validation / artifact / acceptance 覆盖
 - `SCN-05` 的 document-assisted candidate-fact drafting / confirmation 可执行覆盖
 - `SCN-06` 的多文档冲突检测与阻断性 review 覆盖
+- `SCN-07` 的 guarded export 可执行覆盖，用于证明低置信与不完整输入不会被导出为 export-ready
 - 首个前门输入工具：`capture_solution_requirements` 与 `draft_topology_model`
 - 基于现有 coordinator 的显式多 worker review orchestration，以及 worker 间消息传递
 - 面向 extraction / drafting / review-summary 的 feature 层入口，让 tool 保持轻薄
@@ -133,7 +134,7 @@ src/
 2. 显式的 IP 分配建模与产物生成
 3. 显式的端口连接建模与产物生成
 4. 面向 `SCN-01` 的机柜感知物理规划，包括设备布线表与设备端口规划表
-5. 覆盖 `SCN-01` 到 `SCN-06` 的规范场景验收
+5. 覆盖 `SCN-01` 到 `SCN-07` 的规范场景验收
 6. 在校验/工具执行前完成结构化输入归一化
 7. 基于已验证模型状态生成可直接评审的假设/缺口报告
 8. 在已验证/已评审输出之上完成 artifact bundle 打包
@@ -152,9 +153,9 @@ src/
 
 当前框架成熟度为：
 
-1. 插件启动流程、runtime kernel、tool registry 以及一个执行前 readiness guard 已实现
+1. 插件启动流程、runtime kernel、tool registry 以及 5 个执行前 guard hooks 已实现
 2. 基于 tool 的校验、产物生成、评审摘要、workflow launcher、`SCN-04` 验收、requirement capture 与 draft-topology intake 已端到端打通
-3. review workflow 已经跑在显式多 worker orchestration 上，SCN-05 的 extraction + candidate-fact draft / promote 路径与 SCN-06 的冲突阻断都已落地，同时新增了 4 个 advisory planner slices，并且 Phase 9 已经补齐了挂在 extraction 路径后的窄版 advisory MCP source adapter
+3. review workflow 已经跑在显式多 worker orchestration 上，SCN-05 的 extraction + candidate-fact draft / promote 路径与 SCN-06 的冲突阻断都已落地，同时新增了 4 个 advisory planner slices，Phase 9 已经补齐了挂在 extraction 路径后的窄版 advisory MCP source adapter，而 post-roadmap 的 Phase 10 又补上了 runtime export / artifact guardrails 与 `SCN-07` guarded export 验收覆盖
 
 ## 当前 Agent / Orchestration 状态
 
@@ -167,8 +168,8 @@ src/
 5. `src/agents/solution-review-assistant.ts` 负责 review assistant 子 agent。
 6. `src/agents/document-assisted-extraction.ts` 与 4 个 planner agents 负责 extraction / planning 的 child-session 合同。
 
-这意味着仓库已经有显式的多 worker review path、正式的 extraction agent 拆分、document-provenanced 的 candidate-fact draft / promote 路径、4 个会把建议重新送回 `draft_topology_model` 的 advisory planner slices，以及一个挂在 `extract_document_candidate_facts` 后面的、受配置控制的窄版 MCP advisory source adapter。最终产物仍然只能由经过验证的模型生成，外部证据也仍然必须重新经过 draft 确认与验证，而不会绕过 trust boundary。
+这意味着仓库已经有显式的多 worker review path、正式的 extraction agent 拆分、document-provenanced 的 candidate-fact draft / promote 路径、4 个会把建议重新送回 `draft_topology_model` 的 advisory planner slices、一个挂在 `extract_document_candidate_facts` 后面的、受配置控制的窄版 MCP advisory source adapter，以及一条会在 artifact / export 执行前拦截低置信或不完整输入的 runtime guard 链。最终产物仍然只能由经过验证的模型生成，外部证据也仍然必须重新经过 draft 确认与验证，而不会绕过 trust boundary。
 
-当前分支已经满足 roadmap 中对 MVP 以及当前 Phase 9 的完成标准。
+当前分支已经满足 roadmap 中对 MVP、当前 Phase 9，以及 post-roadmap Phase 10 guardrail slice 的完成标准。
 
 当前没有正在进行中的 roadmap phase。后续如果出现新的场景需求，可以在现有 advisory MCP slice 之外继续扩展外部适配层。

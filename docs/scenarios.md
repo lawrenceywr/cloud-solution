@@ -189,6 +189,36 @@ Multiple documents and sources provide conflicting or overlapping information ab
 - workflow properly blocks on blocking conflicts and allows progression on warnings
 - the review path clearly surfaces that conflict resolution still requires an external human decision outside the current implemented workflow
 
+## SCN-07 - Guarded Export Readiness
+
+### Summary
+
+A nearly complete planning slice still contains inferred facts or missing required export data, so the system must stop it from reaching export-ready output.
+
+### Inputs
+
+- an otherwise exportable slice
+- at least one inferred or unresolved fact that still requires review
+- an incomplete variant with required export data removed
+
+### Expected Outputs
+
+- export attempts are rejected before producing an export-ready bundle
+- review workflow remains `review_required` for the low-confidence variant
+- incomplete export attempts are blocked outright
+
+### Expected Validation Behavior
+
+- inferred or unresolved facts remain review-visible and cannot silently pass export gating
+- missing required export data produces blocking issues
+- guard hooks fail early instead of letting low-confidence export appear nearly final
+
+### Acceptance Checks
+
+- low-confidence export attempts never reach `export_ready`
+- incomplete export attempts never reach `export_ready`
+- a clean confirmed slice can still export successfully through the same runtime path
+
 ## Scenario Authoring Rules
 
 Each future scenario should include:
@@ -208,3 +238,4 @@ These scenarios should be treated as the source of truth for early tests and sna
 - `SCN-04` is the current cloud-oriented acceptance anchor for the IP allocation path.
 - `SCN-05` is implemented through document-assisted extraction, candidate-fact drafting, and explicit confirmation.
 - `SCN-06` now covers multi-document evidence reconciliation and blocking conflict detection on the review path.
+- `SCN-07` covers hook-driven export gating for low-confidence and incomplete inputs.

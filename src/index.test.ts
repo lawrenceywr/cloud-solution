@@ -13,6 +13,7 @@ import {
   createScn05DocumentExtractionInputFixture,
   createScn05ExtractedCandidateFactsFixture,
   createScn05PromotedDocumentAssistFixture,
+  createScn07GuardedExportFixture,
 } from "./scenarios/fixtures"
 import { createFakeCoordinatorClient } from "./test-helpers/fake-coordinator-client"
 
@@ -867,80 +868,76 @@ describe("createCloudSolutionRuntime", () => {
     expect(parsed.issues).toEqual([])
   })
 
-  test("blocks runtime IP generation when artifact request was omitted and allocations are missing", async () => {
+  test("rejects runtime IP generation when blocking validation issues remain", async () => {
     const runtime = createCloudSolutionRuntime(process.cwd())
 
-    const result = await runtime.kernel.invokeTool({
-      toolName: "generate_ip_allocation_table",
-      sessionID: "runtime-ip-negative-session",
-      args: {
-        requirement: {
-          id: "req-runtime-ip-negative-1",
-          projectName: "Runtime IP Negative Example",
-          scopeType: "cloud",
-        },
-        segments: [
-          {
-            id: "segment-runtime-negative",
-            name: "runtime-negative",
-            segmentType: "subnet",
-            cidr: "10.91.0.0/24",
-            gateway: "10.91.0.1",
-            purpose: "runtime-negative",
+    await expect(
+      runtime.kernel.invokeTool({
+        toolName: "generate_ip_allocation_table",
+        sessionID: "runtime-ip-negative-session",
+        args: {
+          requirement: {
+            id: "req-runtime-ip-negative-1",
+            projectName: "Runtime IP Negative Example",
+            scopeType: "cloud",
           },
-        ],
-        allocations: [],
-      },
-    })
-    const parsed = JSON.parse(result)
-
-    expect(parsed.issues.map((issue: { code: string }) => issue.code)).toContain("ip_allocations_missing")
-    expect(parsed.artifact.content).toContain("Status: blocked")
+          segments: [
+            {
+              id: "segment-runtime-negative",
+              name: "runtime-negative",
+              segmentType: "subnet",
+              cidr: "10.91.0.0/24",
+              gateway: "10.91.0.1",
+              purpose: "runtime-negative",
+            },
+          ],
+          allocations: [],
+        },
+      }),
+    ).rejects.toThrow("Artifact generation is blocked by validation issues")
   })
 
-  test("blocks runtime port-connection generation when artifact request was omitted and links are missing", async () => {
+  test("rejects runtime port-connection generation when blocking validation issues remain", async () => {
     const runtime = createCloudSolutionRuntime(process.cwd())
 
-    const result = await runtime.kernel.invokeTool({
-      toolName: "generate_port_connection_table",
-      sessionID: "runtime-port-negative-session",
-      args: {
-        requirement: {
-          id: "req-runtime-port-negative-1",
-          projectName: "Runtime Port Negative Example",
-          scopeType: "data-center",
+    await expect(
+      runtime.kernel.invokeTool({
+        toolName: "generate_port_connection_table",
+        sessionID: "runtime-port-negative-session",
+        args: {
+          requirement: {
+            id: "req-runtime-port-negative-1",
+            projectName: "Runtime Port Negative Example",
+            scopeType: "data-center",
+          },
+          devices: [
+            {
+              id: "device-a",
+              name: "switch-a",
+              role: "switch",
+            },
+            {
+              id: "device-b",
+              name: "server-b",
+              role: "server",
+            },
+          ],
+          ports: [
+            {
+              id: "port-a",
+              deviceId: "device-a",
+              name: "eth0",
+            },
+            {
+              id: "port-b",
+              deviceId: "device-b",
+              name: "eth1",
+            },
+          ],
+          links: [],
         },
-        devices: [
-          {
-            id: "device-a",
-            name: "switch-a",
-            role: "switch",
-          },
-          {
-            id: "device-b",
-            name: "server-b",
-            role: "server",
-          },
-        ],
-        ports: [
-          {
-            id: "port-a",
-            deviceId: "device-a",
-            name: "eth0",
-          },
-          {
-            id: "port-b",
-            deviceId: "device-b",
-            name: "eth1",
-          },
-        ],
-        links: [],
-      },
-    })
-    const parsed = JSON.parse(result)
-
-    expect(parsed.issues.map((issue: { code: string }) => issue.code)).toContain("port_connection_links_missing")
-    expect(parsed.artifact.content).toContain("Status: blocked")
+      }),
+    ).rejects.toThrow("Artifact generation is blocked by validation issues")
   })
 
   test("invokes summarize_design_gaps through the runtime kernel", async () => {
@@ -977,6 +974,48 @@ describe("createCloudSolutionRuntime", () => {
     expect(parsed.artifacts).toHaveLength(6)
     expect(parsed.bundleIndex.name).toBe("artifact-bundle-index.md")
     expect(parsed.includedArtifactNames).toContain("design-assumptions-and-gaps.md")
+  })
+
+  test("rejects low-confidence export_artifact_bundle attempts through the runtime kernel", async () => {
+    const runtime = createCloudSolutionRuntime(process.cwd())
+
+    await expect(
+      runtime.kernel.invokeTool({
+        toolName: "export_artifact_bundle",
+        sessionID: "runtime-scn07-low-confidence-export",
+        args: createScn07GuardedExportFixture(),
+      }),
+    ).rejects.toThrow("requires confirmation for inferred or unresolved facts")
+  })
+
+  test("rejects runtime validation when documentAssist is present but empty", async () => {
+    const runtime = createCloudSolutionRuntime(process.cwd())
+
+    await expect(
+      runtime.kernel.invokeTool({
+        toolName: "validate_solution_model",
+        sessionID: "runtime-empty-document-assist",
+        args: {
+          requirement: createScn07GuardedExportFixture().requirement,
+          documentAssist: {},
+        },
+      }),
+    ).rejects.toThrow("at least one planning input section")
+  })
+
+  test("rejects incomplete export_artifact_bundle attempts through the runtime kernel", async () => {
+    const runtime = createCloudSolutionRuntime(process.cwd())
+
+    await expect(
+      runtime.kernel.invokeTool({
+        toolName: "export_artifact_bundle",
+        sessionID: "runtime-scn07-incomplete-export",
+        args: {
+          ...createScn07GuardedExportFixture(),
+          allocations: [],
+        },
+      }),
+    ).rejects.toThrow("Artifact bundle export is blocked by validation issues")
   })
 
   test("blocks export_artifact_bundle through the runtime kernel when evidence reconciliation reports a worker-only conflict", async () => {
