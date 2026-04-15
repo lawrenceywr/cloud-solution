@@ -1055,3 +1055,24 @@ export function createScn06MultiDocumentConflictFixture() {
     ],
   }
 }
+
+export function createScn07GuardedExportFixture(): CloudSolutionSliceInput {
+  const baseFixture = createScn01SingleRackConnectivityFixture()
+
+  return {
+    ...baseFixture,
+    requirement: {
+      ...baseFixture.requirement,
+      id: "req-scn-07",
+      projectName: "SCN-07 Guarded Export Readiness",
+      statusConfidence: "inferred",
+      sourceRefs: [
+        {
+          kind: "user-input",
+          ref: "phase10-inferred-requirement",
+          note: "Requirement details still require review before export.",
+        },
+      ],
+    },
+  }
+}

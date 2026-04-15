@@ -31,6 +31,10 @@ async function runToolGuards(
   output: ToolExecuteBeforeOutput,
 ): Promise<void> {
   await hooks.executionReadinessGuard?.["tool.execute.before"]?.(input, output)
+  await hooks.missingRequiredInputGuard?.["tool.execute.before"]?.(input, output)
+  await hooks.artifactGenerationPrecheck?.["tool.execute.before"]?.(input, output)
+  await hooks.lowConfidenceExportGuard?.["tool.execute.before"]?.(input, output)
+  await hooks.assumptionReviewReminder?.["tool.execute.before"]?.(input, output)
 }
 
 function createToolContext(

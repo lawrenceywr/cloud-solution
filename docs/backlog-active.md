@@ -12,6 +12,17 @@ _No active backlog items._
 
 ## Completed (Reference Only)
 
+### BL-028 - Guarded Export Readiness and Hook Hardening
+
+- **Goal:** harden export/runtime gating with pre-execution hooks and lock the behavior into a canonical acceptance scenario
+- **Depends on:** BL-027 (completed; the advisory MCP extraction path is stable enough to gate more aggressively before export)
+- **Acceptance:**
+  - ✅ the four suggested first hook modules now exist and are wired through the runtime hook chain
+  - ✅ low-confidence or incomplete export attempts do not reach `export_ready`
+  - ✅ `SCN-07` proves low-confidence rejection, incomplete export rejection, and clean export success
+- **Status:** Complete
+- **Completed slice:** shared review/export state reuse for hooks plus SCN-07 guarded export acceptance coverage
+
 ### BL-027 - MCP / External System Integrations
 
 - **Goal:** add optional external integrations for inventory/topology sources
@@ -25,12 +36,12 @@ _No active backlog items._
 
 All BL-001 through BL-026 are complete. See `docs/backlog-archive.md` for historical details.
 
-Phase 8 agent-boundary cleanup, formal extraction-agent split, planner-advisory slices, and the narrow Phase 9 advisory MCP ingestion path are complete on the branch.
+Phase 8 agent-boundary cleanup, formal extraction-agent split, planner-advisory slices, the narrow Phase 9 advisory MCP ingestion path, and the post-roadmap guardrail hardening slice are complete on the branch.
 
 **MVP Done Criteria:** ✅ Satisfied
 
 - ✅ 4 artifact types generating from validated model data
-- ✅ SCN-01 to SCN-06 scenario coverage
+- ✅ SCN-01 to SCN-07 scenario coverage
 - ✅ Normalization, validation, and confirmation gating
 - ✅ Review/export workflow with multi-worker orchestration
 - ✅ Front-door intake tools
