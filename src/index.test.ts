@@ -14,6 +14,7 @@ import {
   createScn05ExtractedCandidateFactsFixture,
   createScn05PromotedDocumentAssistFixture,
   createScn07GuardedExportFixture,
+  createScn08HighReliabilityRackLayoutFixture,
 } from "./scenarios/fixtures"
 import { createFakeCoordinatorClient } from "./test-helpers/fake-coordinator-client"
 
@@ -235,6 +236,36 @@ function createDraftTopologyRuntimeInput() {
         },
       ],
     },
+  }
+}
+
+function createTemplateImportRuntimeInput() {
+  return {
+    requirement: {
+      id: "req-runtime-template-import-1",
+      projectName: "Runtime Template Import Example",
+      scopeType: "data-center" as const,
+      artifactRequests: ["device-cabling-table"],
+      sourceRefs: [],
+      statusConfidence: "confirmed" as const,
+    },
+    documentSources: [
+      {
+        kind: "document" as const,
+        ref: "test/设备连线模板.xlsx",
+        note: "Cable planning template",
+      },
+      {
+        kind: "document" as const,
+        ref: "test/设备装架图模板.xlsx",
+        note: "Rack layout template",
+      },
+      {
+        kind: "document" as const,
+        ref: "test/5-设备端口规划20260327.xlsx",
+        note: "Port plan workbook",
+      },
+    ],
   }
 }
 
@@ -852,6 +883,123 @@ describe("createCloudSolutionRuntime", () => {
     expect(parsed.artifact.name).toBe("device-port-plan.md")
     expect(parsed.artifact.content).toContain("Runtime Physical Example")
     expect(parsed.artifact.content).toContain("port-server-a-2")
+  })
+
+  test("invokes the device rack layout slice through the runtime kernel", async () => {
+    const runtime = createCloudSolutionRuntime(process.cwd())
+
+    const result = await runtime.kernel.invokeTool({
+      toolName: "generate_device_rack_layout",
+      sessionID: "runtime-device-rack-layout-session",
+      args: createScn08HighReliabilityRackLayoutFixture(),
+    })
+    const parsed = JSON.parse(result)
+
+    expect(parsed.issues).toEqual([])
+    expect(parsed.artifact.name).toBe("device-rack-layout.md")
+    expect(parsed.artifact.content).toContain("SCN-08 High Reliability Rack Layout")
+    expect(parsed.artifact.content).toContain("tor-pair-a")
+  })
+
+  test("invokes template import through the runtime kernel and roundtrips into draft_topology_model", async () => {
+    const input = createTemplateImportRuntimeInput()
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: input.documentSources[0],
+                markdown: "## 服务器带内带外连线\n\n| 线缆编号 | 线缆名称 | 线缆程式 | 线缆 条数 | 线缆长度 (米) | 线缆 总长度 （米） | 起始端 | Unnamed: 7 | 目的端 | Unnamed: 9 |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| NaN | NaN | NaN | NaN | NaN | NaN | 机架 | 设备名称/型号 | 机架 | 设备名称/型号 |\n| 1 | 以太网电缆 | F/UTP六类屏蔽线 | 1 | 5 | 5 | E15 | 某项目-管理域节点-B1H服务器-CS5280H3-A01 | E15 | 某项目-带内管理TOR-H3C S5560X-54C-EI-A11 |",
+              },
+              {
+                sourceRef: input.documentSources[1],
+                markdown: "## Sheet1\n\n| Unnamed: 0 | E列15柜 | 机柜(E15） | Unnamed: 3 | 7kw |\n| --- | --- | --- | --- | --- |\n| NaN | 1000 | 某项目-管理域节点-B1H服务器-CS5280H3-A01 | 17 | NaN |\n| NaN | 55 | 某项目-带内管理TOR-H3C S5560X-54C-EI-A11 | 42 | NaN |",
+              },
+              {
+                sourceRef: input.documentSources[2],
+                markdown: "## B1-H服务器\n\n| 板卡编号 | 板卡类型 | 端口编号 | 端口类型 | 接至 | 电路开通方向 | 主要用途 | 备注 |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| 3 | 2端口GE电接口网卡 | 0 | 1G | 管理接入 | H3C S5560X-54C-EI | 千兆管理网络 | NaN |\n\n## 千兆带内管理TOR\n\n| 板卡编号 | 板卡类型 | 端口编号 | 端口类型 | 接至 | 电路开通方向 | 主要用途 | 备注 |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| 1 | 48个GE接口 | 1-48 | 1G | 服务器 | 服务器 | 千兆管理网络 | NaN |",
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+      ],
+    })
+    const runtime = createCloudSolutionRuntime(process.cwd(), { client })
+
+    const extractResult = JSON.parse(
+      await runtime.kernel.invokeTool({
+        toolName: "extract_structured_input_from_templates",
+        sessionID: "runtime-template-import-session",
+        args: input,
+      }),
+    )
+    const draftResult = JSON.parse(
+      await runtime.kernel.invokeTool({
+        toolName: "draft_topology_model",
+        sessionID: "runtime-template-import-session",
+        args: extractResult.draftInput,
+      }),
+    )
+
+    expect(extractResult.nextAction).toBe("draft_topology_model")
+    expect(extractResult.draftInput.structuredInput.devices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "某项目-管理域节点-B1H服务器-CS5280H3-A01",
+          ports: expect.arrayContaining([
+            expect.objectContaining({ name: "3/0", portIndex: 0 }),
+          ]),
+        }),
+      ]),
+    )
+    expect(draftResult.validationSummary.issues.map((issue: { code: string }) => issue.code)).not.toContain("duplicate_device_id")
+  })
+
+  test("rejects runtime rack-layout generation when planning input is missing", async () => {
+    const runtime = createCloudSolutionRuntime(process.cwd())
+
+    await expect(
+      runtime.kernel.invokeTool({
+        toolName: "generate_device_rack_layout",
+        sessionID: "runtime-device-rack-layout-missing-input",
+        args: {
+          requirement: {
+            id: "req-runtime-rack-layout-missing-1",
+            projectName: "Runtime Rack Layout Missing Input",
+            scopeType: "data-center",
+          },
+        },
+      }),
+    ).rejects.toThrow("at least one planning input section")
+  })
+
+  test("rejects runtime rack-layout generation when blocking validation issues remain", async () => {
+    const runtime = createCloudSolutionRuntime(process.cwd())
+    const fixture = createScn08HighReliabilityRackLayoutFixture()
+    fixture.devices.push({
+      id: "device-storage-b",
+      name: "storage-b",
+      role: "storage",
+      rackId: "rack-a",
+      rackPosition: 20,
+      rackUnitHeight: 4,
+      powerWatts: 5000,
+      sourceRefs: [],
+      statusConfidence: "confirmed",
+    })
+
+    await expect(
+      runtime.kernel.invokeTool({
+        toolName: "generate_device_rack_layout",
+        sessionID: "runtime-device-rack-layout-blocked",
+        args: fixture,
+      }),
+    ).rejects.toThrow("Artifact generation is blocked by validation issues")
   })
 
   test("invokes validation through the runtime kernel with structured input", async () => {

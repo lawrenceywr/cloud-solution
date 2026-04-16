@@ -8,9 +8,37 @@ export const ConfidenceStateSchema = z.enum([
 
 export const ArtifactTypeSchema = z.enum([
   "device-cabling-table",
+  "device-rack-layout",
   "device-port-plan",
   "device-port-connection-table",
   "ip-allocation-table",
+])
+
+export const SUPPORTED_ARTIFACT_TYPES = ArtifactTypeSchema.options
+
+export const PortTypeSchema = z.enum([
+  "data",
+  "business",
+  "storage",
+  "inband-mgmt",
+  "oob-mgmt",
+  "peer-link",
+  "uplink",
+])
+
+export const LinkTypeSchema = z.enum([
+  "business",
+  "storage",
+  "inband-mgmt",
+  "oob-mgmt",
+  "peer-link",
+  "uplink",
+  "inter-switch",
+])
+
+export const HighAvailabilityRoleSchema = z.enum([
+  "primary",
+  "secondary",
 ])
 
 export const SourceReferenceSchema = z.object({
@@ -77,6 +105,9 @@ export const DeviceSchema = z.object({
   rackId: z.string().optional(),
   rackPosition: z.number().int().positive().optional(),
   rackUnitHeight: z.number().int().positive().optional(),
+  highAvailabilityGroup: z.string().optional(),
+  highAvailabilityRole: HighAvailabilityRoleSchema.optional(),
+  powerWatts: z.number().positive().optional(),
   sourceRefs: z.array(SourceReferenceSchema).default([]),
   statusConfidence: ConfidenceStateSchema.default("confirmed"),
 })
@@ -88,6 +119,9 @@ export const RackSchema = z.object({
   room: z.string().optional(),
   row: z.string().optional(),
   uHeight: z.number().int().positive().optional(),
+  maxPowerKw: z.number().positive().optional(),
+  adjacentRackIds: z.array(z.string()).optional(),
+  adjacentColumnRackIds: z.array(z.string()).optional(),
   sourceRefs: z.array(SourceReferenceSchema).default([]),
   statusConfidence: ConfidenceStateSchema.default("confirmed"),
 })
@@ -97,6 +131,8 @@ export const PortSchema = z.object({
   deviceId: z.string(),
   name: z.string(),
   purpose: z.string().optional(),
+  portType: PortTypeSchema.optional(),
+  portIndex: z.number().int().nonnegative().optional(),
   sourceRefs: z.array(SourceReferenceSchema).default([]),
   statusConfidence: ConfidenceStateSchema.default("confirmed"),
 })
@@ -110,7 +146,12 @@ export const LinkSchema = z.object({
   endpointA: LinkEndpointSchema,
   endpointB: LinkEndpointSchema,
   purpose: z.string().optional(),
+  linkType: LinkTypeSchema.optional(),
   redundancyGroup: z.string().optional(),
+  cableId: z.string().optional(),
+  cableName: z.string().optional(),
+  cableSpec: z.string().optional(),
+  cableCount: z.number().int().positive().optional(),
   sourceRefs: z.array(SourceReferenceSchema).default([]),
   statusConfidence: ConfidenceStateSchema.default("confirmed"),
 })
@@ -167,6 +208,7 @@ export const ValidationIssueCodeSchema = z.enum([
   "physical_devices_missing",
   "physical_ports_missing",
   "device_cabling_links_missing",
+  "rack_layout_devices_missing",
   "port_connection_links_missing",
   "physical_fact_not_confirmed",
   "ip_allocations_missing",
@@ -198,6 +240,19 @@ export const ValidationIssueCodeSchema = z.enum([
   "multi_rack_links_missing",
   "rack_position_overlap",
   "rack_position_exceeds_height",
+  "rack_power_budget_missing",
+  "device_power_missing",
+  "rack_power_threshold_exceeded",
+  "ha_group_role_missing",
+  "ha_group_role_incomplete",
+  "ha_group_not_adjacent",
+  "plane_link_port_type_mismatch",
+  "peer_link_endpoint_invalid",
+  "peer_link_ha_group_invalid",
+  "inter_switch_link_endpoint_invalid",
+  "uplink_link_endpoint_invalid",
+  "redundancy_peer_ha_group_invalid",
+  "mlag_port_index_mismatch",
   "conflict_duplicate_device",
   "conflict_contradictory_attribute",
   "conflict_duplicate_port_id",
@@ -285,7 +340,25 @@ export const DeviceCablingTableRowSchema = z.object({
   endpointBPortName: z.string(),
   endpointBPortId: z.string(),
   purpose: z.string().optional(),
+  linkType: LinkTypeSchema.optional(),
   redundancyGroup: z.string().optional(),
+  cableId: z.string().optional(),
+  cableName: z.string().optional(),
+  cableSpec: z.string().optional(),
+  cableCount: z.number().int().positive().optional(),
+})
+
+export const DeviceRackLayoutRowSchema = z.object({
+  rackName: z.string(),
+  rackId: z.string(),
+  rackPosition: z.number().int().positive(),
+  rackUnitHeight: z.number().int().positive(),
+  deviceName: z.string(),
+  deviceId: z.string(),
+  deviceRole: z.string(),
+  highAvailabilityGroup: z.string().optional(),
+  highAvailabilityRole: HighAvailabilityRoleSchema.optional(),
+  powerWatts: z.number().positive().optional(),
 })
 
 export const DevicePortPlanRowSchema = z.object({
@@ -298,6 +371,8 @@ export const DevicePortPlanRowSchema = z.object({
   portName: z.string(),
   portId: z.string(),
   portPurpose: z.string().optional(),
+  portType: PortTypeSchema.optional(),
+  portIndex: z.number().int().nonnegative().optional(),
   connectionRefs: z.string().optional(),
   peerRefs: z.string().optional(),
   redundancyGroups: z.string().optional(),
@@ -411,6 +486,9 @@ export const SUPPORTED_ENTITY_KINDS = [
 
 export type ArtifactType = z.infer<typeof ArtifactTypeSchema>
 export type ConfidenceState = z.infer<typeof ConfidenceStateSchema>
+export type PortType = z.infer<typeof PortTypeSchema>
+export type LinkType = z.infer<typeof LinkTypeSchema>
+export type HighAvailabilityRole = z.infer<typeof HighAvailabilityRoleSchema>
 export type DraftInputState = z.infer<typeof DraftInputStateSchema>
 export type SourceReference = z.infer<typeof SourceReferenceSchema>
 export type CandidateFact = z.infer<typeof CandidateFactSchema>
@@ -432,6 +510,7 @@ export type ValidationIssueSubjectType = z.infer<
 >
 export type ValidationIssue = z.infer<typeof ValidationIssueSchema>
 export type DeviceCablingTableRow = z.infer<typeof DeviceCablingTableRowSchema>
+export type DeviceRackLayoutRow = z.infer<typeof DeviceRackLayoutRowSchema>
 export type DevicePortPlanRow = z.infer<typeof DevicePortPlanRowSchema>
 export type DesignReviewItemKind = z.infer<typeof DesignReviewItemKindSchema>
 export type DesignReviewItemRow = z.infer<typeof DesignReviewItemRowSchema>

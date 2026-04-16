@@ -94,7 +94,7 @@ describe("buildDevicePortPlanArtifact", () => {
     expect(artifact.name).toBe("device-port-plan.md")
     expect(artifact.content).toContain("Status: ready")
     expect(artifact.content).toContain(
-      "| Rack | Rack Units | Device | Port | Purpose | Connections | Peer Endpoints | Redundancy Groups |",
+      "| Rack | Rack Units | Device | Port | Purpose | Port Type | Port Index | Connections | Peer Endpoints | Redundancy Groups |",
     )
     expect(artifact.content).toContain("switch-a (device-switch-a)")
     expect(artifact.content).toContain("port-server-a-2")

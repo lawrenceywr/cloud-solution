@@ -9,6 +9,7 @@ import {
   createScn05DocumentExtractionInputFixture,
   createScn05ExtractedCandidateFactsFixture,
   createScn05PromotedDocumentAssistFixture,
+  createScn08HighReliabilityRackLayoutFixture,
 } from "./scenarios/fixtures"
 import { loadPluginConfig } from "./plugin-config"
 import { createManagers } from "./create-managers"
@@ -226,6 +227,34 @@ function createDraftTopologyToolInput() {
   }
 }
 
+function createTemplateStructuredInputToolInput() {
+  return {
+    requirement: {
+      id: "req-template-tool-1",
+      projectName: "Template Structured Tool Example",
+      scopeType: "data-center" as const,
+      artifactRequests: ["device-rack-layout", "device-cabling-table"],
+    },
+    documentSources: [
+      {
+        kind: "document" as const,
+        ref: "test/设备连线模板.xlsx",
+        note: "Cable planning template",
+      },
+      {
+        kind: "document" as const,
+        ref: "test/设备装架图模板.xlsx",
+        note: "Rack layout template",
+      },
+      {
+        kind: "document" as const,
+        ref: "test/5-设备端口规划20260327.xlsx",
+        note: "Port plan workbook",
+      },
+    ],
+  }
+}
+
 describe("createTools", () => {
   test("registers describe_cloud_solution tool", async () => {
     const config = loadPluginConfig(process.cwd())
@@ -249,6 +278,7 @@ describe("createTools", () => {
 
     expect(parsed.pluginName).toBe("cloud-solution")
     expect(parsed.supportedArtifacts).toContain("ip-allocation-table")
+    expect(parsed.supportedArtifacts).toContain("device-rack-layout")
     expect(parsed.exampleRequirement.scopeType).toBe("data-center")
   })
 
@@ -387,6 +417,160 @@ describe("createTools", () => {
       createScn05ExtractedCandidateFactsFixture(),
     )
     expect(parsed.extractionWarnings).toEqual(["Diagram did not expose any rack details."])
+  })
+
+  test("registers extract_structured_input_from_templates tool and returns a draft-ready structuredInput envelope", async () => {
+    const config = loadPluginConfig(process.cwd())
+    const { client, createCalls, promptCalls } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: createTemplateStructuredInputToolInput().documentSources[0],
+                markdown: [
+                  "## 服务器带内带外连线",
+                  "",
+                  "| 线缆编号 | 线缆名称 | 线缆程式 | 线缆 条数 | 线缆长度 (米) | 线缆 总长度 （米） | 起始端 | Unnamed: 7 | 目的端 | Unnamed: 9 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | NaN | NaN | NaN | NaN | NaN | 机架 | 设备名称/型号 | 机架 | 设备名称/型号 |",
+                  "| 1 | 以太网电缆 | F/UTP六类屏蔽线 | 1 | 5 | 5 | F01 | 业务POD-C1服务器-1 | F01 | 业务POD-千兆带内管理TOR-1 |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: createTemplateStructuredInputToolInput().documentSources[1],
+                markdown: [
+                  "## Sheet1",
+                  "",
+                  "| Unnamed: 0 | F列01柜 | 机柜(F01） | Unnamed: 3 | 7kw |",
+                  "| --- | --- | --- | --- | --- |",
+                  "| NaN | 900 | 业务POD-C1服务器-1 | 10 | NaN |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: createTemplateStructuredInputToolInput().documentSources[2],
+                markdown: [
+                  "## C1服务器",
+                  "",
+                  "| 板卡编号 | 板卡类型 | 端口编号 | 端口类型 | 接至 | 电路开通方向 | 主要用途 | 备注 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| 3 | 双口10GE光口网卡 | 0 | 10G | 管理接入 | H3C S6805-54HF | 万兆管理网络 | NaN |",
+                  "| NaN | NaN | 1 | 10G | 管理接入 | H3C S6805-54HF | 万兆管理网络 | NaN |",
+                  "| 4 | 板载HDM口 | 1 | 1G | IPMI接入 | H3C S5560X-54C-EI | IPMI网络 | NaN |",
+                  "",
+                  "## 千兆带内管理TOR",
+                  "",
+                  "| 板卡编号 | 板卡类型 | 端口编号 | 端口类型 | 接至 | 电路开通方向 | 主要用途 | 备注 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| 1 | 48个GE接口 | 1-48 | 1G | 服务器 | 服务器 | 千兆管理网络 | NaN |",
+                ].join("\n"),
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+      ],
+    })
+    const managers = createManagers({
+      context: { directory: process.cwd(), worktree: process.cwd(), client },
+      pluginConfig: config,
+    })
+
+    const tools = createTools({
+      pluginConfig: config,
+      managers,
+      context: { directory: process.cwd(), worktree: process.cwd(), client },
+    })
+
+    expect(Object.keys(tools)).toContain("extract_structured_input_from_templates")
+
+    const response = await tools.extract_structured_input_from_templates.execute(
+      createTemplateStructuredInputToolInput(),
+      createTestToolContext({ sessionID: "tool-test-session" }),
+    )
+    const parsed = JSON.parse(response)
+
+    expect(createCalls).toHaveLength(1)
+    expect(promptCalls).toHaveLength(1)
+    expect(parsed.nextAction).toBe("draft_topology_model")
+    expect(parsed.draftInput.structuredInput.racks).toEqual([
+      expect.objectContaining({ name: "F01", maxPowerKw: 7 }),
+    ])
+    expect(parsed.draftInput.structuredInput.devices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "业务POD-C1服务器-1", role: "server" }),
+        expect.objectContaining({ name: "业务POD-千兆带内管理TOR-1", role: "switch" }),
+      ]),
+    )
+    expect(parsed.draftInput.structuredInput.links).toEqual([
+      expect.objectContaining({
+        linkType: "inband-mgmt",
+        cableId: "1",
+        endpointA: { deviceName: "业务POD-C1服务器-1", portName: "3/0" },
+        endpointB: { deviceName: "业务POD-千兆带内管理TOR-1", portName: "1/1" },
+      }),
+    ])
+    expect(parsed.draftInput.structuredInput.devices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "业务POD-C1服务器-1",
+          ports: expect.arrayContaining([
+            expect.objectContaining({ name: "3/0", portIndex: 0 }),
+          ]),
+        }),
+      ]),
+    )
+  })
+
+  test("extract_structured_input_from_templates rejects execution when plugin config disables document assist", async () => {
+    const config = {
+      ...loadPluginConfig(process.cwd()),
+      allow_document_assist: false,
+    }
+    const { client } = createFakeCoordinatorClient()
+    const managers = createManagers({
+      context: { directory: process.cwd(), worktree: process.cwd(), client },
+      pluginConfig: config,
+    })
+
+    const tools = createTools({
+      pluginConfig: config,
+      managers,
+      context: { directory: process.cwd(), worktree: process.cwd(), client },
+    })
+
+    await expect(
+      tools.extract_structured_input_from_templates.execute(
+        createTemplateStructuredInputToolInput(),
+        createTestToolContext({ sessionID: "tool-test-session" }),
+      ),
+    ).rejects.toThrow("Template-to-structured-input import requires document assist to be enabled.")
+  })
+
+  test("extract_structured_input_from_templates requires a runtime client", async () => {
+    const config = loadPluginConfig(process.cwd())
+    const managers = createManagers({
+      context: { directory: process.cwd(), worktree: process.cwd() },
+      pluginConfig: config,
+    })
+
+    const tools = createTools({
+      pluginConfig: config,
+      managers,
+      context: { directory: process.cwd(), worktree: process.cwd() },
+    })
+
+    await expect(
+      tools.extract_structured_input_from_templates.execute(
+        createTemplateStructuredInputToolInput(),
+        createTestToolContext({ sessionID: "tool-test-session" }),
+      ),
+    ).rejects.toThrow(
+      "extract_structured_input_from_templates requires a plugin runtime client to spawn the internal markdown preparation worker",
+    )
   })
 
   test("document-assisted capture output roundtrips through extract_document_candidate_facts and into draft_topology_model", async () => {
@@ -1053,6 +1237,32 @@ describe("createTools", () => {
     expect(parsed.artifact.name).toBe("device-port-plan.md")
     expect(parsed.artifact.content).toContain("Status: ready")
     expect(parsed.artifact.content).toContain("port-server-a-2")
+  })
+
+  test("registers generate_device_rack_layout tool", async () => {
+    const config = loadPluginConfig(process.cwd())
+    const managers = createManagers({
+      context: { directory: process.cwd() },
+      pluginConfig: config,
+    })
+
+    const tools = createTools({
+      pluginConfig: config,
+      managers,
+    })
+
+    expect(Object.keys(tools)).toContain("generate_device_rack_layout")
+
+    const response = await tools.generate_device_rack_layout.execute(
+      createScn08HighReliabilityRackLayoutFixture(),
+      createTestToolContext({ sessionID: "tool-test-session" }),
+    )
+    const parsed = JSON.parse(response)
+
+    expect(parsed.issues).toEqual([])
+    expect(parsed.artifact.name).toBe("device-rack-layout.md")
+    expect(parsed.artifact.content).toContain("Status: ready")
+    expect(parsed.artifact.content).toContain("tor-pair-a")
   })
 
   test("normalizes structured input before generating physical artifacts", async () => {

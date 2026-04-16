@@ -27,6 +27,7 @@ const documentSourceMarkdownSystemPrompt = [
   "You are the internal document-to-markdown preparation child agent for a cloud/data-center solution workflow.",
   "Base your output only on the provided brief JSON.",
   "For each supplied local sourceRef, attempt to use the MarkItDown conversion tool when it is available.",
+  "Spreadsheet or workbook sources, including xlsx, should stay as workbook-derived markdown instead of being paraphrased.",
   "The preferred tool name is 'markitdown_convert_to_markdown'.",
   "If a source cannot be converted, is unsupported, or the tool is unavailable, do not invent markdown; add a conversion warning instead.",
   "Only return markdown that is grounded in the supplied sourceRef.",
@@ -38,9 +39,20 @@ const documentSourceMarkdownSystemPrompt = [
   "Set recommendations to [].",
 ].join("\n")
 
+function isSpreadsheetSourceRef(ref: string): boolean {
+  return /\.(xlsx|xlsm|xls)$/i.test(ref)
+}
+
 function buildDocumentSourceMarkdownPrompt(args: {
   documentSources: Array<z.infer<typeof DocumentSourceSchema>>
 }): string {
+  const workbookGuardrails = args.documentSources.some((source) => isSpreadsheetSourceRef(source.ref))
+    ? [
+        "For workbook sources, preserve the converted sheet boundaries exactly as returned by MarkItDown.",
+        "Keep sheet headings such as '## SheetName' and maintain workbook sheet order in the markdown.",
+      ]
+    : []
+
   return [
     "Convert the following local document/image/diagram sources into markdown when possible:",
     JSON.stringify({
@@ -49,6 +61,7 @@ function buildDocumentSourceMarkdownPrompt(args: {
         "Converted markdown is advisory extraction input only.",
         "Do not summarize beyond the converted content.",
         "Return one convertedDocuments entry per successfully converted source.",
+        ...workbookGuardrails,
       ],
     }, null, 2),
   ].join("\n")

@@ -1,12 +1,21 @@
 # Active Backlog
 
-**Last Updated:** 2026-04-14
+**Last Updated:** 2026-04-16
 
 ---
 
 ## Active
 
-_No active backlog items._
+### BL-029 - Real Template Physical Completion
+
+- **Goal:** close the remaining physical completeness gaps in real-template runs now that workbook-driven rack, port, and power import foundations are landed
+- **Depends on:** BL-028 (completed) plus the post-roadmap template-import slices already landed on `dev`
+- **Acceptance:**
+  - deterministic workbook import covers the remaining high-value physical facts still missing from current real-template quality runs
+  - project-bound rack power / non-standard rack-U confirmations are explicit inputs rather than hidden assumptions
+  - real-template quality runs retain workbook-derived ports and power while reducing importer-caused physical blockers
+- **Status:** In Progress
+- **Current slice landed:** workbook-driven structured import, project-bound port placement, device power import, and rack defaults are complete; remaining work is physical completeness reduction on real-template runs
 
 ---
 
@@ -40,8 +49,8 @@ Phase 8 agent-boundary cleanup, formal extraction-agent split, planner-advisory 
 
 **MVP Done Criteria:** ✅ Satisfied
 
-- ✅ 4 artifact types generating from validated model data
-- ✅ SCN-01 to SCN-07 scenario coverage
+- ✅ 5 artifact types generating from validated model data
+- ✅ SCN-01 to SCN-08 scenario coverage
 - ✅ Normalization, validation, and confirmation gating
 - ✅ Review/export workflow with multi-worker orchestration
 - ✅ Front-door intake tools

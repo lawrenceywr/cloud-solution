@@ -68,4 +68,53 @@ describe("runDocumentSourceMarkdownInChildSession", () => {
       ])
     }
   })
+
+  test("adds workbook guardrails when xlsx sources are converted", async () => {
+    const workbookSource = {
+      kind: "document" as const,
+      ref: "fixtures/high-reliability-template.xlsx",
+      note: "Workbook template",
+    }
+    const { client, promptCalls } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: workbookSource,
+                markdown: "## Rack Layout\n\n| Rack | Device |\n| --- | --- |\n| rack-a | tor-a |\n\n## Cabling\n\n| Cable | A | B |\n| --- | --- | --- |\n| CAB-001 | tor-a | server-a |",
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+      ],
+    })
+
+    const result = await runDocumentSourceMarkdownInChildSession({
+      documentSources: [workbookSource],
+      runtime: createWorkerRuntimeContext(client),
+    })
+
+    expect(promptCalls[0]).toEqual(
+      expect.objectContaining({
+        body: expect.objectContaining({
+          system: expect.stringContaining("Spreadsheet or workbook sources, including xlsx"),
+          parts: [
+            expect.objectContaining({
+              text: expect.stringContaining("preserve the converted sheet boundaries exactly"),
+            }),
+          ],
+        }),
+      }),
+    )
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.result.output.convertedDocuments[0]?.markdown).toContain("## Rack Layout")
+      expect(result.result.output.convertedDocuments[0]?.markdown).toContain("## Cabling")
+    }
+  })
 })

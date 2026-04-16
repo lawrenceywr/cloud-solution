@@ -131,7 +131,7 @@ The user provides a local PDF or image as supporting material, but confirmation 
 
 ### Inputs
 
-- one local PDF/image/diagram
+- one local PDF/image/diagram/spreadsheet
 - explicit textual requirements
 - optional inventory list
 
@@ -239,3 +239,40 @@ These scenarios should be treated as the source of truth for early tests and sna
 - `SCN-05` is implemented through document-assisted extraction, candidate-fact drafting, and explicit confirmation.
 - `SCN-06` now covers multi-document evidence reconciliation and blocking conflict detection on the review path.
 - `SCN-07` covers hook-driven export gating for low-confidence and incomplete inputs.
+
+## SCN-08 - High-Reliability Rack Layout and Cabling Foundation
+
+### Summary
+
+A high-reliability data-center planning slice with paired ToR devices, explicit rack placement, and deterministic physical checks before broader template ingestion lands.
+
+### Inputs
+
+- at least two racks with adjacency metadata
+- paired high-availability devices with explicit rack placement
+- explicit business/storage/management or uplink-oriented ports and links
+- rack power budget plus per-device power draw where available
+
+### Expected Outputs
+
+- device rack layout artifact
+- enriched device cabling table with cable metadata and link typing
+
+### Expected Validation Behavior
+
+- rack power above the 80% threshold blocks output
+- rack power metadata must be complete before high-reliability power validation can run
+- high-availability device pairs must resolve to explicit primary/secondary roles
+- HA device pairs must be in adjacent racks or adjacent columns
+- typed business/storage/in-band/oob links must stay consistent with typed endpoint ports
+- peer-link, inter-switch, and uplink link types must terminate on network-infrastructure devices only
+- dual-homed-required peer devices must resolve to one complete HA pair before MLAG symmetry checks can pass
+- MLAG-style redundant links must keep peer-facing port indexes symmetric
+
+### Acceptance Checks
+
+- rack layout rows include HA grouping and power metadata
+- cabling output preserves cable metadata and typed link semantics
+- invalid power, adjacency, or MLAG symmetry inputs are blocked deterministically
+- checked-in workbook templates can be converted into deterministic draft `structuredInput` through the existing markdown-preprocessing path
+- unsupported workbook kinds stay advisory with explicit warnings instead of guessed structured facts

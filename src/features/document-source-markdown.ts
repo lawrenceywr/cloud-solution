@@ -13,6 +13,14 @@ function uniqueStrings(values: string[]): string[] {
   return [...new Set(values)]
 }
 
+function isSpreadsheetSource(ref: string): boolean {
+  return /\.(xlsx|xlsm|xls)$/i.test(ref)
+}
+
+function hasWorkbookSheetBoundaries(markdown: string): boolean {
+  return /^##\s+\S+/m.test(markdown)
+}
+
 export async function prepareDocumentSourcesAsMarkdown(args: {
   documentSources: DocumentSource[]
   runtime: WorkerRuntimeContext
@@ -44,11 +52,23 @@ export async function prepareDocumentSourcesAsMarkdown(args: {
     return allowedSourceKeys.has(key)
   })
   const droppedDocumentCount = result.result.output.convertedDocuments.length - convertedDocuments.length
+  const workbookBoundaryWarnings: string[] = []
+  const validatedDocuments = convertedDocuments.filter((document) => {
+    if (!isSpreadsheetSource(document.sourceRef.ref) || hasWorkbookSheetBoundaries(document.markdown)) {
+      return true
+    }
+
+    workbookBoundaryWarnings.push(
+      `Dropped converted workbook markdown for ${document.sourceRef.ref} because no sheet boundaries like '## SheetName' were preserved.`,
+    )
+    return false
+  })
 
   return {
-    convertedDocuments,
+    convertedDocuments: validatedDocuments,
     conversionWarnings: uniqueStrings([
       ...result.result.output.conversionWarnings,
+      ...workbookBoundaryWarnings,
       ...(droppedDocumentCount > 0
         ? [
             `Dropped ${droppedDocumentCount} converted markdown result(s) whose sourceRef did not match the supplied documentSources.`,

@@ -1,19 +1,34 @@
 # Progress Snapshot
 
-**Last Updated:** 2026-04-14  
-**Status:** MVP Complete → Post-roadmap Phase 10 Complete
+**Last Updated:** 2026-04-16  
+**Status:** MVP Complete → Post-roadmap real-template physical import deepening in progress
 
 ---
 
 ## Current Stage
 
-✅ **Phase 10 Complete** - runtime guardrails now block missing-input, low-confidence, and invalid export paths before tool execution, and SCN-07 locks that behavior into acceptance coverage.
+✅ **Post-roadmap template-import deepening in progress** - SCN-08 foundation, workbook-driven port placement, device power import, and rack defaults are now landed on `dev`; the next focus is closing the remaining physical completeness gaps in real-template runs.
 
-✅ **Current Status:** all roadmap phases through Phase 9 are complete on this branch, and the post-roadmap Phase 10 guardrail slice is also complete.
+✅ **Current Status:** all roadmap phases through Phase 10 remain complete, and the active post-roadmap work is now deterministic real-template import quality deepening rather than guardrail hardening.
 
 ---
 
 ## Completed Capabilities
+
+### SCN-08 Rule Depth + XLSX Workbook Preprocessing (NEW ✅)
+- ✅ high-reliability validation now goes beyond the initial foundation and blocks missing HA roles, incomplete HA pairs, invalid peer-link/uplink endpoint types, typed plane mismatches, and missing rack/device power metadata when the rack-layout slice requires power evaluation
+- ✅ dual-homed high-reliability peers now must resolve to one complete HA pair before the MLAG symmetry rule is considered satisfied
+- ✅ workbook-style `.xlsx` inputs are now explicitly locked into the existing MarkItDown preprocessing path, with multi-sheet markdown boundaries preserved as advisory extraction input
+- ✅ regression tests now cover multi-sheet workbook markdown flowing from `document-source-markdown` into the extraction child session without creating a new truth path
+
+### Real Template Import to StructuredInput (NEW ✅)
+- ✅ added `extract_structured_input_from_templates` to turn checked-in workbook templates into deterministic draft `structuredInput`
+- ✅ the first adapter slice deterministically consumes the cabling workbook and rack-layout workbook through the existing MarkItDown preprocessing path
+- ✅ project-bound port-plan workbooks now drive actual endpoint port placement for matched devices instead of warning-only recognition
+- ✅ project-bound inventory and parameter-response workbooks now drive device `powerWatts` for deterministically matched devices
+- ✅ rack metadata now defaults to `48U` and `7kW` on the import path when the project did not provide explicit rack values, while still surfacing confirmation warnings
+- ✅ inventory workbooks are still recognized explicitly and surfaced as warnings instead of being guessed into structured facts
+- ✅ automated regression coverage now locks the workbook-markdown parser against real checked-in sheet shapes (including duplicated rack-power headers like `7kw.1`), while real workbook conversion remains manually verified through MarkItDown
 
 ### Guardrail Hooks & SCN-07 (NEW ✅)
 - ✅ 4 new pre-execution hooks now exist: `missing-required-input-guard`, `artifact-generation-precheck`, `low-confidence-export-guard`, and `assumption-review-reminder`
@@ -53,10 +68,11 @@
 - ✅ Normalization layer for structured inputs
 - ✅ Confirmation gating (blocks unconfirmed facts from final artifacts)
 
-### Artifact Generation (4 types)
+### Artifact Generation (5 types)
 - ✅ `generate_ip_allocation_table`
 - ✅ `generate_port_connection_table`
 - ✅ `generate_device_cabling_table`
+- ✅ `generate_device_rack_layout`
 - ✅ `generate_device_port_plan`
 
 ### Review & Export
@@ -77,6 +93,7 @@
 - ✅ SCN-05: Document-provenanced candidate facts + confirmation
 - ✅ SCN-06: Multi-document conflict detection and workflow blocking
 - ✅ SCN-07: Guarded export readiness for low-confidence and incomplete inputs
+- ✅ SCN-08: High-reliability rack layout + typed cabling foundation
 
 ### Orchestration Layer
 - ✅ `src/coordinator/` - child-session protocol, dependency-ordered dispatch
@@ -100,7 +117,7 @@
 | `src/domain/` | Canonical entity schemas |
 | `src/validators/` | Deterministic rule checks |
 | `src/normalizers/` | Structured input → canonical model |
-| `src/artifacts/` | 4 artifact row builders |
+| `src/artifacts/` | 5 artifact row builders |
 | `src/renderers/` | Markdown + JSON output |
 | `src/tools/` | User-facing tool handlers |
 | `src/coordinator/` | Multi-worker orchestration |

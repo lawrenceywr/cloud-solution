@@ -5,9 +5,13 @@
 Its job is to help turn requirements, inventory, topology information, rack information, and supporting documents into validated planning artifacts such as:
 
 - device cabling tables
+- device rack layout tables
 - device port planning tables
 - device port connection tables
 - IP allocation tables
+- deterministic workbook-template import into draft structured input
+- project-bound workbook port-plan integration for actual endpoint port placement
+- project-bound inventory and parameter workbook integration for device power import
 - solution notes, assumptions, and review items
 
 ## Product Direction
@@ -104,7 +108,7 @@ This directory now contains:
 
 - architecture and delivery docs
 - a Bun/TypeScript plugin scaffold
-- deterministic schema/validation/tooling for IP allocation, port connection, device cabling, and device port plan artifacts
+- deterministic schema/validation/tooling for IP allocation, port connection, device cabling, device rack layout, and device port plan artifacts
 - executable acceptance coverage for `SCN-01`, `SCN-02`, and `SCN-03`
 - a first normalization layer for structured physical/network input into the canonical model
 - confirmation gating that blocks weak physical and IP facts from driving final artifacts
@@ -123,6 +127,8 @@ This directory now contains:
 - executable `SCN-05` document-assisted candidate-fact drafting and confirmation coverage
 - executable `SCN-06` multi-document conflict coverage across drafting, review, and scenario acceptance
 - executable `SCN-07` guarded export coverage for low-confidence and incomplete runtime inputs
+- executable `SCN-08` high-reliability rack-layout foundation coverage
+- executable deterministic workbook-markdown import coverage that feeds `draft_topology_model`, including project-bound port-plan placement, device power import, and rack defaults, plus manual verification against checked-in real workbooks
 - first front-door intake tools for `capture_solution_requirements` and `draft_topology_model`
 - explicit multi-worker review orchestration with dependency-ordered worker execution and worker-to-worker message passing
 - a deterministic evidence-reconciliation validator + worker wired into the review path
@@ -136,7 +142,7 @@ The current implementation covers:
 2. explicit IP allocation modeling and artifact generation
 3. explicit port connection modeling and artifact generation
 4. rack-aware `SCN-01` physical planning via device cabling and device port plan artifacts
-5. canonical scenario acceptance for `SCN-01` to `SCN-07`
+5. canonical scenario acceptance for `SCN-01` to `SCN-08`
 6. structured-input normalization before validation/tool execution
 7. review-ready assumptions/gaps reporting from validated model state
 8. export-ready artifact bundle packaging on top of validated/reviewed outputs

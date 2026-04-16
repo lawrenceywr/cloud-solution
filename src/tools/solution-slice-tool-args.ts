@@ -2,9 +2,35 @@ import { tool, type ToolDefinition } from "@opencode-ai/plugin/tool"
 
 const artifactTypeSchema = tool.schema.enum([
   "device-cabling-table",
+  "device-rack-layout",
   "device-port-plan",
   "device-port-connection-table",
   "ip-allocation-table",
+])
+
+const portTypeSchema = tool.schema.enum([
+  "data",
+  "business",
+  "storage",
+  "inband-mgmt",
+  "oob-mgmt",
+  "peer-link",
+  "uplink",
+])
+
+const linkTypeSchema = tool.schema.enum([
+  "business",
+  "storage",
+  "inband-mgmt",
+  "oob-mgmt",
+  "peer-link",
+  "uplink",
+  "inter-switch",
+])
+
+const highAvailabilityRoleSchema = tool.schema.enum([
+  "primary",
+  "secondary",
 ])
 
 const confidenceStateSchema = tool.schema.enum([
@@ -42,6 +68,9 @@ const deviceSchema = tool.schema.object({
   rackId: tool.schema.string().optional(),
   rackPosition: tool.schema.number().int().positive().optional(),
   rackUnitHeight: tool.schema.number().int().positive().optional(),
+  highAvailabilityGroup: tool.schema.string().optional(),
+  highAvailabilityRole: highAvailabilityRoleSchema.optional(),
+  powerWatts: tool.schema.number().positive().optional(),
   sourceRefs: tool.schema.array(sourceReferenceSchema).default([]),
   statusConfidence: confidenceStateSchema.default("confirmed"),
 })
@@ -53,6 +82,9 @@ const rackSchema = tool.schema.object({
   room: tool.schema.string().optional(),
   row: tool.schema.string().optional(),
   uHeight: tool.schema.number().int().positive().optional(),
+  maxPowerKw: tool.schema.number().positive().optional(),
+  adjacentRackIds: tool.schema.array(tool.schema.string()).default([]),
+  adjacentColumnRackIds: tool.schema.array(tool.schema.string()).default([]),
   sourceRefs: tool.schema.array(sourceReferenceSchema).default([]),
   statusConfidence: confidenceStateSchema.default("confirmed"),
 })
@@ -62,6 +94,8 @@ const portSchema = tool.schema.object({
   deviceId: tool.schema.string(),
   name: tool.schema.string(),
   purpose: tool.schema.string().optional(),
+  portType: portTypeSchema.optional(),
+  portIndex: tool.schema.number().int().min(0).optional(),
   sourceRefs: tool.schema.array(sourceReferenceSchema).default([]),
   statusConfidence: confidenceStateSchema.default("confirmed"),
 })
@@ -75,7 +109,12 @@ const linkSchema = tool.schema.object({
   endpointA: linkEndpointSchema,
   endpointB: linkEndpointSchema,
   purpose: tool.schema.string().optional(),
+  linkType: linkTypeSchema.optional(),
   redundancyGroup: tool.schema.string().optional(),
+  cableId: tool.schema.string().optional(),
+  cableName: tool.schema.string().optional(),
+  cableSpec: tool.schema.string().optional(),
+  cableCount: tool.schema.number().int().positive().optional(),
   sourceRefs: tool.schema.array(sourceReferenceSchema).default([]),
   statusConfidence: confidenceStateSchema.default("confirmed"),
 })
@@ -115,6 +154,8 @@ const structuredPortSchema = tool.schema.object({
   id: tool.schema.string().optional(),
   name: tool.schema.string(),
   purpose: tool.schema.string().optional(),
+  portType: portTypeSchema.optional(),
+  portIndex: tool.schema.number().int().min(0).optional(),
   sourceRefs: tool.schema.array(sourceReferenceSchema).default([]),
   statusConfidence: confidenceStateSchema.default("confirmed"),
 })
@@ -133,6 +174,9 @@ const structuredDeviceSchema = tool.schema.object({
   rackName: tool.schema.string().optional(),
   rackPosition: tool.schema.number().int().positive().optional(),
   rackUnitHeight: tool.schema.number().int().positive().optional(),
+  highAvailabilityGroup: tool.schema.string().optional(),
+  highAvailabilityRole: highAvailabilityRoleSchema.optional(),
+  powerWatts: tool.schema.number().positive().optional(),
   ports: tool.schema.array(structuredPortSchema).default([]),
   sourceRefs: tool.schema.array(sourceReferenceSchema).default([]),
   statusConfidence: confidenceStateSchema.default("confirmed"),
@@ -145,6 +189,9 @@ const structuredRackSchema = tool.schema.object({
   room: tool.schema.string().optional(),
   row: tool.schema.string().optional(),
   uHeight: tool.schema.number().int().positive().optional(),
+  maxPowerKw: tool.schema.number().positive().optional(),
+  adjacentRackIds: tool.schema.array(tool.schema.string()).default([]),
+  adjacentColumnRackIds: tool.schema.array(tool.schema.string()).default([]),
   sourceRefs: tool.schema.array(sourceReferenceSchema).default([]),
   statusConfidence: confidenceStateSchema.default("confirmed"),
 })
@@ -159,7 +206,12 @@ const structuredLinkSchema = tool.schema.object({
   endpointA: structuredLinkEndpointSchema,
   endpointB: structuredLinkEndpointSchema,
   purpose: tool.schema.string().optional(),
+  linkType: linkTypeSchema.optional(),
   redundancyGroup: tool.schema.string().optional(),
+  cableId: tool.schema.string().optional(),
+  cableName: tool.schema.string().optional(),
+  cableSpec: tool.schema.string().optional(),
+  cableCount: tool.schema.number().int().positive().optional(),
   sourceRefs: tool.schema.array(sourceReferenceSchema).default([]),
   statusConfidence: confidenceStateSchema.default("confirmed"),
 })

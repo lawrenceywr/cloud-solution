@@ -108,4 +108,92 @@ describe("prepareDocumentSourcesAsMarkdown", () => {
       "Worker document-source-markdown returned invalid output result",
     ])
   })
+
+  test("preserves multi-sheet xlsx markdown boundaries from MarkItDown", async () => {
+    const workbookSource = {
+      kind: "document" as const,
+      ref: "fixtures/high-reliability-template.xlsx",
+      note: "Workbook template",
+    }
+    const workbookMarkdown = [
+      "## Rack Layout",
+      "",
+      "| Rack | Device |",
+      "| --- | --- |",
+      "| rack-a | tor-a |",
+      "",
+      "## Cabling",
+      "",
+      "| Cable | A | B |",
+      "| --- | --- | --- |",
+      "| CAB-001 | tor-a | server-a |",
+    ].join("\n")
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: workbookSource,
+                markdown: workbookMarkdown,
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+      ],
+    })
+
+    const result = await prepareDocumentSourcesAsMarkdown({
+      documentSources: [workbookSource],
+      runtime: createWorkerRuntimeContext(client),
+    })
+
+    expect(result.convertedDocuments).toEqual([
+      {
+        sourceRef: workbookSource,
+        markdown: workbookMarkdown,
+      },
+    ])
+    expect(result.conversionWarnings).toEqual([])
+  })
+
+  test("drops converted workbook markdown when sheet boundaries are missing", async () => {
+    const workbookSource = {
+      kind: "document" as const,
+      ref: "fixtures/high-reliability-template.xlsx",
+      note: "Workbook template",
+    }
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: workbookSource,
+                markdown: "| Rack | Device |\n| --- | --- |\n| rack-a | tor-a |",
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+      ],
+    })
+
+    const result = await prepareDocumentSourcesAsMarkdown({
+      documentSources: [workbookSource],
+      runtime: createWorkerRuntimeContext(client),
+    })
+
+    expect(result.convertedDocuments).toEqual([])
+    expect(result.conversionWarnings).toEqual([
+      "Dropped converted workbook markdown for fixtures/high-reliability-template.xlsx because no sheet boundaries like '## SheetName' were preserved.",
+    ])
+  })
 })

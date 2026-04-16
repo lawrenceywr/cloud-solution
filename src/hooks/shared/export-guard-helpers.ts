@@ -11,6 +11,7 @@ import { validateCloudSolutionModel } from "../../validators"
 
 const ArtifactGenerationToolTypes: Partial<Record<string, ArtifactType>> = {
   generate_device_cabling_table: "device-cabling-table",
+  generate_device_rack_layout: "device-rack-layout",
   generate_device_port_plan: "device-port-plan",
   generate_port_connection_table: "device-port-connection-table",
   generate_ip_allocation_table: "ip-allocation-table",
@@ -20,6 +21,7 @@ const SliceInputToolNames = new Set([
   "draft_topology_model",
   "validate_solution_model",
   "generate_device_cabling_table",
+  "generate_device_rack_layout",
   "generate_device_port_plan",
   "generate_port_connection_table",
   "generate_ip_allocation_table",

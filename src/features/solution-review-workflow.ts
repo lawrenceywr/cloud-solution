@@ -34,6 +34,7 @@ function getRelevantSubjectTypes(
 
   if (
     requestedArtifactTypes.includes("device-cabling-table")
+    || requestedArtifactTypes.includes("device-rack-layout")
     || requestedArtifactTypes.includes("device-port-plan")
     || requestedArtifactTypes.includes("device-port-connection-table")
   ) {

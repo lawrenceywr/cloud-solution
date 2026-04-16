@@ -159,6 +159,7 @@ Each output type should use its own row schema.
 Required row families:
 
 - `CablingTableRow`
+- `RackLayoutRow`
 - `PortPlanRow`
 - `PortConnectionRow`
 - `IpAllocationRow`
@@ -211,12 +212,13 @@ The validator should check at least:
 
 ## 6. Artifact Contract
 
-All four primary outputs must be generated from the same validated model:
+All five primary outputs must be generated from the same validated model:
 
 1. device cabling table
-2. device port planning table
-3. device port connection table
-4. IP allocation table
+2. device rack layout
+3. device port planning table
+4. device port connection table
+5. IP allocation table
 
 If the model is not complete enough for one of them, the system should emit a gap report rather than guess.
 

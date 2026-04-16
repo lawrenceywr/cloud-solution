@@ -257,4 +257,97 @@ describe("runExtractDocumentCandidateFacts", () => {
       "External source omitted rack placement details.",
     ])
   })
+
+  test("passes multi-sheet xlsx markdown into the extraction child session as advisory input", async () => {
+    const workspace = createTempWorkspace()
+    const workbookRef = "fixtures/high-reliability-template.xlsx"
+    const workbookSource = {
+      kind: "document" as const,
+      ref: workbookRef,
+      note: "Workbook template",
+    }
+    writeFileSync(join(workspace, workbookRef), "placeholder workbook")
+
+    const { client, promptCalls } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: workbookSource,
+                markdown: "## Rack Layout\n\n| Rack | Device |\n| --- | --- |\n| rack-a | tor-a |\n\n## Cabling\n\n| Cable | A | B |\n| --- | --- | --- |\n| CAB-001 | tor-a | server-a |",
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+        JSON.stringify({
+          workerId: "document-assisted-extraction",
+          status: "success",
+          output: {
+            candidateFacts: createScn05ExtractedCandidateFactsFixture([workbookSource]),
+            extractionWarnings: [],
+          },
+          recommendations: ["draft_topology_model"],
+        }),
+      ],
+    })
+
+    const result = await runExtractDocumentCandidateFacts({
+      input: {
+        requirement: {
+          id: "req-xlsx-extract-1",
+          projectName: "Workbook Extraction Example",
+          scopeType: "data-center" as const,
+          sourceRefs: [],
+          artifactRequests: [],
+          statusConfidence: "confirmed" as const,
+        },
+        documentAssist: {
+          documentSources: [workbookSource],
+          candidateFacts: {
+            racks: [],
+            devices: [],
+            links: [],
+            segments: [],
+            allocations: [],
+          },
+        },
+      },
+      pluginConfig: loadPluginConfig(process.cwd()),
+      runtime: createWorkerRuntimeContext(client, {
+        directory: workspace,
+        worktree: workspace,
+      }),
+      rootDirectory: workspace,
+    })
+
+    expect(result.nextAction).toBe("draft_topology_model")
+    expect(promptCalls[1]).toEqual(
+      expect.objectContaining({
+        body: expect.objectContaining({
+          parts: [
+            expect.objectContaining({
+              text: expect.stringContaining("## Rack Layout"),
+            }),
+          ],
+        }),
+      }),
+    )
+    expect(promptCalls[1]).toEqual(
+      expect.objectContaining({
+        body: expect.objectContaining({
+          parts: [
+            expect.objectContaining({
+              text: expect.stringContaining("## Cabling"),
+            }),
+          ],
+        }),
+      }),
+    )
+    expect(result.draftInput.documentAssist.documentSources).toEqual([workbookSource])
+  })
 })
