@@ -493,30 +493,37 @@ describe("createTools", () => {
     )
     const parsed = JSON.parse(response)
 
-    expect(createCalls).toHaveLength(1)
-    expect(promptCalls).toHaveLength(1)
+    expect(createCalls).toHaveLength(0)
+    expect(promptCalls).toHaveLength(0)
     expect(parsed.nextAction).toBe("draft_topology_model")
-    expect(parsed.draftInput.structuredInput.racks).toEqual([
-      expect.objectContaining({ name: "F01", maxPowerKw: 7 }),
-    ])
-    expect(parsed.draftInput.structuredInput.devices).toEqual(
+    expect(parsed.warnings).toContain(
+      "Used the deterministic converted-markdown bundle for workbook preprocessing.",
+    )
+    expect(parsed.draftInput.structuredInput.racks).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ name: "业务POD-C1服务器-1", role: "server" }),
-        expect.objectContaining({ name: "业务POD-千兆带内管理TOR-1", role: "switch" }),
+        expect.objectContaining({ name: "F01", maxPowerKw: 7 }),
       ]),
     )
-    expect(parsed.draftInput.structuredInput.links).toEqual([
-      expect.objectContaining({
-        linkType: "inband-mgmt",
-        cableId: "1",
-        endpointA: { deviceName: "业务POD-C1服务器-1", portName: "3/0" },
-        endpointB: { deviceName: "业务POD-千兆带内管理TOR-1", portName: "1/1" },
-      }),
-    ])
+    expect(parsed.draftInput.structuredInput.devices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "业务POD-B1H服务器-CS5280H3-1", role: "server" }),
+        expect.objectContaining({ name: "业务POD-SDN千兆带内管理TOR-H3C S5560X-54C-EI-1", role: "switch" }),
+      ]),
+    )
+    expect(parsed.draftInput.structuredInput.links).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          linkType: "inband-mgmt",
+          cableId: "1.0",
+          endpointA: { deviceName: "业务POD-B1H服务器-CS5280H3-1", portName: "0/0" },
+          endpointB: expect.objectContaining({ deviceName: "业务POD-千兆带内管理TOR-H3C S5560X-54C-EI-11" }),
+        }),
+      ]),
+    )
     expect(parsed.draftInput.structuredInput.devices).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          name: "业务POD-C1服务器-1",
+          name: "业务POD-B1H服务器-CS5280H3-1",
           ports: expect.arrayContaining([
             expect.objectContaining({ name: "3/0", portIndex: 0 }),
           ]),
@@ -550,7 +557,7 @@ describe("createTools", () => {
     ).rejects.toThrow("Template-to-structured-input import requires document assist to be enabled.")
   })
 
-  test("extract_structured_input_from_templates requires a runtime client", async () => {
+  test("extract_structured_input_from_templates can execute without a runtime client when a complete local bundle exists", async () => {
     const config = loadPluginConfig(process.cwd())
     const managers = createManagers({
       context: { directory: process.cwd(), worktree: process.cwd() },
@@ -563,13 +570,21 @@ describe("createTools", () => {
       context: { directory: process.cwd(), worktree: process.cwd() },
     })
 
-    await expect(
-      tools.extract_structured_input_from_templates.execute(
+    const parsed = JSON.parse(
+      await tools.extract_structured_input_from_templates.execute(
         createTemplateStructuredInputToolInput(),
         createTestToolContext({ sessionID: "tool-test-session" }),
       ),
-    ).rejects.toThrow(
-      "extract_structured_input_from_templates requires a plugin runtime client to spawn the internal markdown preparation worker",
+    )
+
+    expect(parsed.summary).toEqual({
+      parsedSourceCount: 3,
+      rackCount: 26,
+      deviceCount: 52,
+      linkCount: 49,
+    })
+    expect(parsed.warnings).toContain(
+      "Used the deterministic converted-markdown bundle for workbook preprocessing.",
     )
   })
 

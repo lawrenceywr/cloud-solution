@@ -5,6 +5,7 @@ import type { RuntimeContext } from "../../plugin/types"
 import type { WorkerRuntimeContext } from "../../coordinator/types"
 import { runExportArtifactBundle } from "../../features"
 import { createSolutionSliceToolArgs } from "../solution-slice-tool-args"
+import { createInternalWorkerRuntimeContext } from "../internal-worker-runtime"
 
 export function createExportArtifactBundleTools(args: {
   pluginConfig: CloudSolutionConfig
@@ -18,14 +19,10 @@ export function createExportArtifactBundleTools(args: {
     args: createSolutionSliceToolArgs(),
     execute: async (inputArgs, toolContext) => {
       const runtime: WorkerRuntimeContext | undefined = context?.client
-        ? {
-            client: context.client,
-            parentSessionID: toolContext.sessionID,
-            agent: toolContext.agent,
-            directory: context.directory,
-            worktree: context.worktree ?? context.directory,
-            abort: toolContext.abort,
-          }
+        ? createInternalWorkerRuntimeContext({
+            context,
+            toolContext,
+          })
         : undefined
 
       const result = await runExportArtifactBundle({

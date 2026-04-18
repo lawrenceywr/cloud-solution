@@ -4,6 +4,7 @@ import type { CloudSolutionConfig } from "../../config"
 import type { WorkerRuntimeContext } from "../../coordinator/types"
 import { runSolutionReviewAgentHandoff } from "../../features"
 import type { RuntimeContext } from "../../plugin/types"
+import { createInternalWorkerRuntimeContext } from "../internal-worker-runtime"
 import { createSolutionSliceToolArgs } from "../solution-slice-tool-args"
 
 function createDraftSourceReferenceSchema() {
@@ -145,14 +146,10 @@ export function createStartSolutionReviewWorkflowTools(args: {
         )
       }
 
-      const runtime: WorkerRuntimeContext = {
-        client: context.client,
-        parentSessionID: toolContext.sessionID,
-        agent: toolContext.agent,
-        directory: context.directory,
-        worktree: context.worktree ?? context.directory,
-        abort: toolContext.abort,
-      }
+      const runtime: WorkerRuntimeContext = createInternalWorkerRuntimeContext({
+        context,
+        toolContext,
+      })
 
       const handoff = await runSolutionReviewAgentHandoff({
         input: inputArgs,

@@ -5,7 +5,7 @@ import type { CoordinatorClient } from "../plugin/types"
 
 const WorkerMessageSchema = z.object({
   workerId: z.string(),
-  status: z.enum(["success", "partial", "failed"]),
+  status: z.enum(["success", "partial", "failed", "completed", "completed_with_warnings"]),
   output: z.record(z.string(), z.unknown()),
   recommendations: z.array(z.string()),
   errors: z.array(z.string()).optional(),
@@ -51,7 +51,14 @@ export const ClarificationQuestionSchema = z.object({
 
 export type CoordinatorInput = z.infer<typeof CoordinatorInputSchema>
 export type WorkerInput = z.infer<typeof WorkerInputSchema>
-export type WorkerResult = z.infer<typeof WorkerResultSchema>
+export type WorkerStatus = "success" | "partial" | "failed" | "completed" | "completed_with_warnings"
+export type WorkerResult = {
+  workerId: string
+  status: WorkerStatus
+  output: Record<string, unknown>
+  recommendations: string[]
+  errors?: string[]
+}
 export type CoordinatorResult = z.infer<typeof CoordinatorResultSchema>
 export type ClarificationQuestion = z.infer<typeof ClarificationQuestionSchema>
 

@@ -97,7 +97,10 @@ export async function executeSubsessionProtocol<TOutputSchema extends z.ZodType>
 
   const successfulWorkerResult: SuccessfulWorkerResult<TOutputSchema> = {
     ...workerResult,
-    status: workerResult.status === "partial" ? "partial" : "success",
+    status:
+      workerResult.status === "partial" || workerResult.status === "completed_with_warnings"
+        ? "partial"
+        : "success",
     output: parsedOutput.data,
   }
 

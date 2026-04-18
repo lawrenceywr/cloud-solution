@@ -5,6 +5,7 @@ import type { WorkerRuntimeContext } from "../../coordinator/types"
 import type { CloudSolutionConfig } from "../../config"
 import { runDraftTopologyModel } from "../../features"
 import { createDraftTopologyModelArgs } from "../intake-tool-args"
+import { createInternalWorkerRuntimeContext } from "../internal-worker-runtime"
 
 export function createDraftTopologyModelTools(args: {
   pluginConfig: CloudSolutionConfig
@@ -18,14 +19,10 @@ export function createDraftTopologyModelTools(args: {
     args: createDraftTopologyModelArgs(),
     execute: async (inputArgs, toolContext) => {
       const execContext: WorkerRuntimeContext | undefined = context?.client
-        ? {
-            client: context.client,
-            parentSessionID: toolContext.sessionID,
-            agent: toolContext.agent,
-            directory: context.directory,
-            worktree: context.worktree ?? context.directory,
-            abort: toolContext.abort,
-          }
+        ? createInternalWorkerRuntimeContext({
+            context,
+            toolContext,
+          })
         : undefined
 
       const result = await runDraftTopologyModel({

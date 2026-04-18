@@ -1,4 +1,4 @@
-import { existsSync, realpathSync, statSync } from "node:fs"
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs"
 import path from "node:path"
 import { z } from "zod"
 
@@ -19,6 +19,13 @@ const ExtractStructuredInputFromTemplatesInputSchema = z.object({
 
 type TemplateSourceRef = z.infer<typeof TemplateSourceSchema>
 type StructuredInput = z.infer<typeof StructuredSolutionInputSchema.shape.structuredInput>
+type ConvertedDocumentManifest = {
+  convertedDocuments: Array<{
+    kind: TemplateSourceRef["kind"]
+    ref: string
+    note?: string
+  }>
+}
 
 type MutablePort = {
   name: string
@@ -32,9 +39,12 @@ type MutablePort = {
 type MutableDevice = {
   name: string
   role: string
+  redundancyIntent?: StructuredInput["devices"][number]["redundancyIntent"]
   rackName?: string
   rackPosition?: number
   rackUnitHeight?: number
+  highAvailabilityGroup?: string
+  highAvailabilityRole?: StructuredInput["devices"][number]["highAvailabilityRole"]
   powerWatts?: number
   powerSourcePriority?: number
   sourceRefs: TemplateSourceRef[]
@@ -47,6 +57,8 @@ type MutableRack = {
   row?: string
   uHeight?: number
   maxPowerKw?: number
+  adjacentRackNames: string[]
+  adjacentColumnRackNames: string[]
   sourceRefs: TemplateSourceRef[]
   statusConfidence: "inferred"
 }
@@ -108,6 +120,7 @@ type ParameterPowerProfile = {
   title: string
   matchKey: string
   modelKey?: string
+  rackUnitHeight?: number
   powerWatts: number
   sourceRefs: TemplateSourceRef[]
 }
@@ -128,6 +141,10 @@ type MarkdownSection = {
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values)]
+}
+
+function mergeStringValues(current: string[], incoming: string[]): string[] {
+  return [...new Set([...current, ...incoming])].sort((left, right) => left.localeCompare(right))
 }
 
 function mergeSourceRefs(current: TemplateSourceRef[], incoming: TemplateSourceRef[]): TemplateSourceRef[] {
@@ -186,6 +203,100 @@ function normalizeTemplateSourceRefs(args: {
       ref: relativeRef,
     }
   })
+}
+
+function discoverParameterResponseSupportSources(args: {
+  rootDirectory: string
+  documentSources: TemplateSourceRef[]
+}): {
+  documentSources: TemplateSourceRef[]
+  warnings: string[]
+} {
+  const existingRefs = new Set(args.documentSources.map((sourceRef) => sourceRef.ref))
+  const discoveredDocumentSources: TemplateSourceRef[] = []
+  let discoveredFromDirectoryCount = 0
+  const warnings: string[] = []
+
+  const parameterDirectory = path.join(args.rootDirectory, "test", "设备参数应答表")
+  const parameterDirectoryExists = existsSync(parameterDirectory) && statSync(parameterDirectory).isDirectory()
+  if (parameterDirectoryExists) {
+    for (const entry of readdirSync(parameterDirectory).sort((left, right) => left.localeCompare(right, "zh-Hans-CN"))) {
+      if (!/\.(xlsx|xlsm|xls)$/i.test(entry)) {
+        continue
+      }
+      const resolvedPath = path.join(parameterDirectory, entry)
+      const sourceRef = {
+        kind: "document" as const,
+        ref: path.relative(args.rootDirectory, resolvedPath),
+        note: path.basename(entry, path.extname(entry)),
+      }
+      if (existingRefs.has(sourceRef.ref)) {
+        continue
+      }
+      existingRefs.add(sourceRef.ref)
+      discoveredDocumentSources.push(sourceRef)
+      discoveredFromDirectoryCount += 1
+    }
+
+    return {
+      documentSources: [...args.documentSources, ...discoveredDocumentSources],
+      warnings: uniqueStrings([
+        ...(discoveredFromDirectoryCount > 0
+          ? [
+              `Discovered ${discoveredFromDirectoryCount} parameter-response support workbook(s) under test/设备参数应答表 for deterministic power hydration.`,
+            ]
+          : []),
+      ]),
+    }
+  }
+
+  const manifestCandidates = [
+    path.join(args.rootDirectory, "test", "converted-markdown", "convertedDocuments.json"),
+    path.join(args.rootDirectory, "dist", "runtime-assets", "converted-markdown", "convertedDocuments.json"),
+  ]
+
+  for (const manifestPath of manifestCandidates) {
+    if (!existsSync(manifestPath)) {
+      continue
+    }
+
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as ConvertedDocumentManifest
+    const manifestSupportSources = manifest.convertedDocuments
+      .filter((document) => document.ref.includes("test/设备参数应答表/"))
+      .map((document) => ({
+        kind: document.kind,
+        ref: document.ref,
+        note: document.note,
+      }))
+      .filter((sourceRef) => !existingRefs.has(sourceRef.ref))
+
+    if (manifestSupportSources.length === 0) {
+      continue
+    }
+
+    for (const sourceRef of manifestSupportSources) {
+      existingRefs.add(sourceRef.ref)
+      discoveredDocumentSources.push(sourceRef)
+    }
+
+    warnings.push(
+      `Recovered ${manifestSupportSources.length} parameter-response support workbook reference(s) from the deterministic converted-markdown bundle.`,
+    )
+  }
+
+  if (discoveredDocumentSources.length === 0) {
+    return {
+      documentSources: args.documentSources,
+      warnings: [],
+    }
+  }
+
+  return {
+    documentSources: [...args.documentSources, ...discoveredDocumentSources],
+    warnings: uniqueStrings([
+      ...warnings,
+    ]),
+  }
 }
 
 function cleanCell(value: string | undefined): string {
@@ -265,6 +376,21 @@ function inferDeviceParity(value: string): "odd" | "even" | undefined {
   }
 
   return undefined
+}
+
+function extractServerFamilyToken(value: string): string | undefined {
+  const normalized = value.normalize("NFKC").toUpperCase()
+  const match = normalized.match(/([A-Z]\d{1,2}[HK]?)(?=服务器)/u)
+  return match?.[1]?.toLowerCase()
+}
+
+function hasConflictingExplicitFamilyToken(args: {
+  deviceName: string
+  profileTitle: string
+}): boolean {
+  const deviceFamilyToken = extractServerFamilyToken(args.deviceName)
+  const profileFamilyToken = extractServerFamilyToken(args.profileTitle)
+  return !!deviceFamilyToken && !!profileFamilyToken && deviceFamilyToken !== profileFamilyToken
 }
 
 function inferParity(value: string): "odd" | "even" | undefined {
@@ -480,6 +606,7 @@ function parseParameterResponseWorkbook(args: {
     for (const row of rows.slice(headerIndex + 1)) {
       const title = cleanCell(row[0])
       const model = cleanCell(row[1])
+      const rackUnitHeight = parseNumber(row[4])
       const powerWatts = parseNumber(row[7])
       if (!title || !model || typeof powerWatts !== "number") {
         continue
@@ -492,6 +619,7 @@ function parseParameterResponseWorkbook(args: {
           profileTitle: title,
         }),
         modelKey: extractModelKey(`${title} ${model}`),
+        rackUnitHeight,
         powerWatts,
         sourceRefs: [sourceRef],
       })
@@ -581,6 +709,65 @@ function findMatchingParameterPowerProfiles(args: {
     .sort((left, right) => right.matchKey.length - left.matchKey.length)
 }
 
+function findDirectParameterPowerProfiles(args: {
+  state: TemplateAdapterState
+  deviceName: string
+}): ParameterPowerProfile[] {
+  const deviceModelKey = extractModelKey(args.deviceName)
+
+  const candidates = args.state.parameterPowerProfiles
+    .map((profile) => {
+      const exactModelMatch = !!profile.modelKey && !!deviceModelKey && profile.modelKey === deviceModelKey
+      const partialModelMatch = !!profile.modelKey
+        && !!deviceModelKey
+        && (deviceModelKey.includes(profile.modelKey) || profile.modelKey.includes(deviceModelKey))
+      const keyMatches = matchesByProfileKey({
+        deviceName: args.deviceName,
+        profileKey: profile.matchKey,
+      })
+      const hasFamilyConflict = hasConflictingExplicitFamilyToken({
+        deviceName: args.deviceName,
+        profileTitle: profile.title,
+      })
+
+      if (hasFamilyConflict && !keyMatches) {
+        return {
+          profile,
+          score: 0,
+        }
+      }
+
+      let score = 0
+      if (exactModelMatch) {
+        score += 200
+      } else if (partialModelMatch) {
+        score += 120
+      }
+
+      if (keyMatches) {
+        score += 80
+      }
+
+      return {
+        profile,
+        score,
+      }
+    })
+    .filter((candidate) => candidate.score > 0)
+    .sort((left, right) => {
+      if (right.score !== left.score) {
+        return right.score - left.score
+      }
+      const modelLengthDelta = (right.profile.modelKey?.length ?? 0) - (left.profile.modelKey?.length ?? 0)
+      if (modelLengthDelta !== 0) {
+        return modelLengthDelta
+      }
+      return right.profile.matchKey.length - left.profile.matchKey.length
+    })
+
+  return candidates.map((candidate) => candidate.profile)
+}
+
 function hydratePowerForDevice(args: {
   state: TemplateAdapterState
   deviceName: string
@@ -602,31 +789,53 @@ function hydratePowerForDevice(args: {
     warningPrefix: "Multiple inventory profiles",
   })
   const inventoryProfile = inventoryMatches[0]
-  if (!inventoryProfile) {
-    if (state.inventoryProfiles.length > 0) {
-      state.warnings.push(
-        `No inventory workbook row matched device ${deviceName}, so device power remains unresolved until the project provides a matching inventory entry.`,
-      )
-    }
-    return
-  }
-
-  const parameterMatches = findMatchingParameterPowerProfiles({
-    state,
-    inventoryProfile,
-    deviceName,
-  })
+  const parameterMatches = inventoryProfile
+    ? findMatchingParameterPowerProfiles({
+        state,
+        inventoryProfile,
+        deviceName,
+      })
+    : []
   warnOnAmbiguousMatches({
     state,
     deviceName,
     matches: parameterMatches,
     warningPrefix: "Multiple parameter-response power profiles",
   })
-  const parameterProfile = parameterMatches[0]
+  let parameterProfile = parameterMatches[0]
+
   if (!parameterProfile) {
-    state.warnings.push(
-      `Inventory matched device ${deviceName}, but no parameter-response workbook row provided deterministic power for it.`,
-    )
+    const directParameterMatches = findDirectParameterPowerProfiles({
+      state,
+      deviceName,
+    })
+    warnOnAmbiguousMatches({
+      state,
+      deviceName,
+      matches: directParameterMatches,
+      warningPrefix: "Multiple direct parameter-response power profiles",
+    })
+    parameterProfile = directParameterMatches[0]
+  }
+
+  if (!parameterProfile) {
+    if (typeof device.powerWatts === "number") {
+      return
+    }
+
+    if (inventoryProfile && state.parameterPowerProfiles.length > 0) {
+      state.warnings.push(
+        `Inventory matched device ${deviceName}, but no parameter-response workbook row provided deterministic power for it.`,
+      )
+    } else if (state.parameterPowerProfiles.length > 0) {
+      state.warnings.push(
+        `No parameter-response workbook row matched device ${deviceName} by deterministic model/title rules, so device power remains unresolved and requires user confirmation.`,
+      )
+    } else if (state.inventoryProfiles.length > 0) {
+      state.warnings.push(
+        `No inventory workbook row matched device ${deviceName}, so device power remains unresolved until the project provides a matching inventory entry.`,
+      )
+    }
     return
   }
 
@@ -636,12 +845,39 @@ function hydratePowerForDevice(args: {
 
   state.devices.set(deviceName, {
     ...device,
+    rackUnitHeight: parameterProfile.rackUnitHeight ?? device.rackUnitHeight,
     powerWatts: parameterProfile.powerWatts,
     powerSourcePriority: 3,
     sourceRefs: mergeSourceRefs(
       device.sourceRefs,
-      mergeSourceRefs(inventoryProfile.sourceRefs, parameterProfile.sourceRefs),
+      inventoryProfile
+        ? mergeSourceRefs(inventoryProfile.sourceRefs, parameterProfile.sourceRefs)
+        : parameterProfile.sourceRefs,
     ),
+  })
+}
+
+function pruneResolvedPowerWarnings(state: TemplateAdapterState) {
+  const unresolvedPowerPatterns = [
+    /^Inventory matched device (.+), but no parameter-response workbook row provided deterministic power for it\.$/,
+    /^No parameter-response workbook row matched device (.+) by deterministic model\/title rules, so device power remains unresolved and requires user confirmation\.$/,
+    /^No inventory workbook row matched device (.+), so device power remains unresolved until the project provides a matching inventory entry\.$/,
+  ]
+
+  state.warnings = state.warnings.filter((warning) => {
+    for (const pattern of unresolvedPowerPatterns) {
+      const match = warning.match(pattern)
+      if (!match?.[1]) {
+        continue
+      }
+
+      const device = state.devices.get(match[1])
+      if (typeof device?.powerWatts === "number") {
+        return false
+      }
+    }
+
+    return true
   })
 }
 
@@ -677,6 +913,486 @@ function inferRoleFromDeviceName(deviceName: string): string {
     return "storage"
   }
   return "device"
+}
+
+function parseRackCoordinate(rackName: string): { row: string, column: number } | undefined {
+  const match = rackName.trim().toUpperCase().match(/^([A-Z]+)(\d+)$/)
+  if (!match?.[1] || !match[2]) {
+    return undefined
+  }
+
+  return {
+    row: match[1],
+    column: Number.parseInt(match[2], 10),
+  }
+}
+
+function rackRowToOrdinal(row: string): number {
+  return row
+    .toUpperCase()
+    .split("")
+    .reduce((total, character) => total * 26 + (character.charCodeAt(0) - 64), 0)
+}
+
+function areRackNamesAdjacent(left: string, right: string): boolean {
+  const leftCoordinate = parseRackCoordinate(left)
+  const rightCoordinate = parseRackCoordinate(right)
+  if (!leftCoordinate || !rightCoordinate) {
+    return false
+  }
+
+  if (leftCoordinate.row === rightCoordinate.row) {
+    return Math.abs(leftCoordinate.column - rightCoordinate.column) === 1
+  }
+
+  return leftCoordinate.column === rightCoordinate.column
+    && Math.abs(rackRowToOrdinal(leftCoordinate.row) - rackRowToOrdinal(rightCoordinate.row)) === 1
+}
+
+function inferPlacementAffinityKey(deviceName: string): string {
+  return deviceName.replace(/-(\d+)$/u, "")
+}
+
+function inferNumericSuffix(deviceName: string): number | undefined {
+  const match = deviceName.match(/-(\d+)$/u)
+  return match?.[1] ? Number.parseInt(match[1], 10) : undefined
+}
+
+function defaultRackUnitHeightForRole(device: MutableDevice): number {
+  if (device.role === "server" || device.role === "storage") {
+    if (typeof device.rackUnitHeight === "number" && device.rackUnitHeight > 1) {
+      return device.rackUnitHeight
+    }
+    return 2
+  }
+
+  if (typeof device.rackUnitHeight === "number") {
+    return device.rackUnitHeight
+  }
+
+  return 1
+}
+
+function synthesizeRackAdjacency(state: TemplateAdapterState) {
+  const rackNames = [...state.racks.keys()]
+  for (const rackName of rackNames) {
+    const rack = state.racks.get(rackName)
+    const coordinate = parseRackCoordinate(rackName)
+    if (!rack || !coordinate) {
+      continue
+    }
+
+    const adjacentRackNames = rackNames.filter((candidate) => {
+      if (candidate === rackName) {
+        return false
+      }
+      const candidateCoordinate = parseRackCoordinate(candidate)
+      return !!candidateCoordinate
+        && candidateCoordinate.row === coordinate.row
+        && Math.abs(candidateCoordinate.column - coordinate.column) === 1
+    })
+    const adjacentColumnRackNames = rackNames.filter((candidate) => {
+      if (candidate === rackName) {
+        return false
+      }
+      const candidateCoordinate = parseRackCoordinate(candidate)
+      return !!candidateCoordinate
+        && candidateCoordinate.column === coordinate.column
+        && Math.abs(rackRowToOrdinal(candidateCoordinate.row) - rackRowToOrdinal(coordinate.row)) === 1
+    })
+
+    rack.adjacentRackNames = mergeStringValues(rack.adjacentRackNames, adjacentRackNames)
+    rack.adjacentColumnRackNames = mergeStringValues(rack.adjacentColumnRackNames, adjacentColumnRackNames)
+    state.racks.set(rackName, rack)
+  }
+}
+
+const heuristicRedundantPlacementRoles = new Set([
+  "switch",
+  "router",
+  "firewall",
+  "load-balancer",
+  "ips",
+  "waf",
+])
+
+function isRedundantPairCandidate(groupedDevices: MutableDevice[]): boolean {
+  if (groupedDevices.length !== 2) {
+    return false
+  }
+
+  const [firstDevice, secondDevice] = groupedDevices
+  if (!firstDevice || !secondDevice) {
+    return false
+  }
+
+  if (
+    firstDevice.highAvailabilityGroup
+    && secondDevice.highAvailabilityGroup
+    && firstDevice.highAvailabilityGroup === secondDevice.highAvailabilityGroup
+  ) {
+    return true
+  }
+
+  const hasExplicitRedundancyIntent = groupedDevices.some((device) => device.redundancyIntent && device.redundancyIntent !== "single-homed")
+  if (hasExplicitRedundancyIntent) {
+    return true
+  }
+
+  return firstDevice.role === secondDevice.role && heuristicRedundantPlacementRoles.has(firstDevice.role)
+}
+
+function buildRackOccupancy(state: TemplateAdapterState) {
+  const occupancyByRack = new Map<string, Array<{ start: number, end: number }>>()
+  const powerByRack = new Map<string, number>()
+
+  return { occupancyByRack, powerByRack }
+}
+
+function isRangeAvailable(args: {
+  ranges: Array<{ start: number, end: number }>
+  start: number
+  unitHeight: number
+  rackHeight: number
+}): boolean {
+  const end = args.start + args.unitHeight - 1
+  if (args.start < 1 || end > args.rackHeight) {
+    return false
+  }
+
+  return !args.ranges.some((range) => !(end < range.start || args.start > range.end))
+}
+
+function findAvailableRackPosition(args: {
+  rackHeight: number
+  unitHeight: number
+  ranges: Array<{ start: number, end: number }>
+  role: string
+}): number | undefined {
+  const preferTopPlacement = args.role !== "server" && args.role !== "storage"
+  const start = preferTopPlacement ? args.rackHeight - args.unitHeight + 1 : 1
+  const end = preferTopPlacement ? 1 : args.rackHeight - args.unitHeight + 1
+  const step = preferTopPlacement ? -1 : 1
+
+  for (let rackPosition = start; preferTopPlacement ? rackPosition >= end : rackPosition <= end; rackPosition += step) {
+    if (isRangeAvailable({
+      ranges: args.ranges,
+      start: rackPosition,
+      unitHeight: args.unitHeight,
+      rackHeight: args.rackHeight,
+    })) {
+      return rackPosition
+    }
+  }
+
+  return undefined
+}
+
+function reserveRackPosition(args: {
+  occupancyByRack: Map<string, Array<{ start: number, end: number }>>
+  rackName: string
+  rackPosition: number
+  unitHeight: number
+}) {
+  const ranges = args.occupancyByRack.get(args.rackName) ?? []
+  ranges.push({
+    start: args.rackPosition,
+    end: args.rackPosition + args.unitHeight - 1,
+  })
+  args.occupancyByRack.set(args.rackName, ranges)
+}
+
+function clearPlacement(device: MutableDevice) {
+  device.rackName = undefined
+  device.rackPosition = undefined
+}
+
+function hasEmptyAdjacentRack(args: {
+  rack: MutableRack
+  occupancyByRack: Map<string, Array<{ start: number, end: number }>>
+}): boolean {
+  const adjacentRackNames = [...args.rack.adjacentRackNames, ...args.rack.adjacentColumnRackNames]
+  return adjacentRackNames.some((rackName) => (args.occupancyByRack.get(rackName)?.length ?? 0) === 0)
+}
+
+function chooseRackCandidate(args: {
+  state: TemplateAdapterState
+  device: MutableDevice
+  preferredRackName?: string
+  occupancyByRack: Map<string, Array<{ start: number, end: number }>>
+  powerByRack: Map<string, number>
+}): { rack: MutableRack, rackPosition: number } | undefined {
+  const veryHighPower = typeof args.device.powerWatts === "number" && args.device.powerWatts >= 5000
+  const safeRackCandidates = [...args.state.racks.values()].filter((rack) => {
+    const thresholdWatts = typeof rack.maxPowerKw === "number" ? rack.maxPowerKw * 1000 * 0.8 : Number.POSITIVE_INFINITY
+    const projectedPower = (args.powerByRack.get(rack.name) ?? 0) + (args.device.powerWatts ?? 0)
+    return projectedPower <= thresholdWatts
+  })
+  const rackCandidates = safeRackCandidates.length > 0
+    ? safeRackCandidates
+    : [...args.state.racks.values()]
+  const prioritizedRackCandidates = veryHighPower
+    ? rackCandidates.filter((rack) => hasEmptyAdjacentRack({ rack, occupancyByRack: args.occupancyByRack }))
+    : []
+  const candidatePool = prioritizedRackCandidates.length > 0 ? prioritizedRackCandidates : rackCandidates
+
+  const scoredCandidates = candidatePool
+    .map((rack) => {
+      const rackPosition = findAvailableRackPosition({
+        rackHeight: rack.uHeight ?? 48,
+        unitHeight: args.device.rackUnitHeight ?? 1,
+        ranges: args.occupancyByRack.get(rack.name) ?? [],
+        role: args.device.role,
+      })
+
+      if (typeof rackPosition !== "number") {
+        return undefined
+      }
+
+      let score = 0
+      if (args.preferredRackName && rack.name === args.preferredRackName) {
+        score += 100
+      } else if (args.preferredRackName && areRackNamesAdjacent(rack.name, args.preferredRackName)) {
+        score += 80
+      }
+
+      score += Math.max(0, 20 - (args.powerByRack.get(rack.name) ?? 0) / 500)
+
+      return { rack, rackPosition, score }
+    })
+    .filter((candidate): candidate is { rack: MutableRack, rackPosition: number, score: number } => !!candidate)
+    .sort((left, right) => {
+      if (right.score !== left.score) {
+        return right.score - left.score
+      }
+      return left.rack.name.localeCompare(right.rack.name)
+    })
+
+  return scoredCandidates[0] ? { rack: scoredCandidates[0].rack, rackPosition: scoredCandidates[0].rackPosition } : undefined
+}
+
+function chooseAdjacentRackPair(args: {
+  state: TemplateAdapterState
+  firstDevice: MutableDevice
+  secondDevice: MutableDevice
+  occupancyByRack: Map<string, Array<{ start: number, end: number }>>
+  powerByRack: Map<string, number>
+}): { firstRack: MutableRack, secondRack: MutableRack, firstPosition: number, secondPosition: number } | undefined {
+  const adjacentRackPairs: Array<[MutableRack, MutableRack]> = []
+
+  const preferredFirstRack = chooseRackCandidate({
+    state: args.state,
+    device: args.firstDevice,
+    preferredRackName: args.firstDevice.rackName,
+    occupancyByRack: args.occupancyByRack,
+    powerByRack: args.powerByRack,
+  })
+  const preferredSecondRack = chooseRackCandidate({
+    state: args.state,
+    device: args.secondDevice,
+    preferredRackName: args.secondDevice.rackName,
+    occupancyByRack: args.occupancyByRack,
+    powerByRack: args.powerByRack,
+  })
+
+  if (
+    preferredFirstRack
+    && preferredSecondRack
+    && preferredFirstRack.rack.name !== preferredSecondRack.rack.name
+    && areRackNamesAdjacent(preferredFirstRack.rack.name, preferredSecondRack.rack.name)
+  ) {
+    return {
+      firstRack: preferredFirstRack.rack,
+      secondRack: preferredSecondRack.rack,
+      firstPosition: preferredFirstRack.rackPosition,
+      secondPosition: preferredSecondRack.rackPosition,
+    }
+  }
+
+  for (const firstRack of args.state.racks.values()) {
+    const adjacentCandidates = [...firstRack.adjacentRackNames, ...firstRack.adjacentColumnRackNames]
+      .map((rackName) => args.state.racks.get(rackName))
+      .filter((rack): rack is MutableRack => !!rack)
+      .filter((rack) => rack.name !== firstRack.name)
+
+    for (const secondRack of adjacentCandidates) {
+      adjacentRackPairs.push([firstRack, secondRack])
+    }
+  }
+
+  const candidatePairs = adjacentRackPairs.map(([firstRack, secondRack]) => {
+      const firstPosition = findAvailableRackPosition({
+        rackHeight: firstRack.uHeight ?? 48,
+        unitHeight: args.firstDevice.rackUnitHeight ?? 1,
+        ranges: args.occupancyByRack.get(firstRack.name) ?? [],
+        role: args.firstDevice.role,
+      })
+      const secondPosition = findAvailableRackPosition({
+        rackHeight: secondRack.uHeight ?? 48,
+        unitHeight: args.secondDevice.rackUnitHeight ?? 1,
+        ranges: args.occupancyByRack.get(secondRack.name) ?? [],
+        role: args.secondDevice.role,
+      })
+
+      if (typeof firstPosition !== "number" || typeof secondPosition !== "number") {
+        return undefined
+      }
+
+      let score = 0
+      if (args.firstDevice.rackName && firstRack.name === args.firstDevice.rackName) {
+        score += 100
+      }
+      if (args.secondDevice.rackName && secondRack.name === args.secondDevice.rackName) {
+        score += 100
+      }
+      if (args.firstDevice.rackName && areRackNamesAdjacent(firstRack.name, args.firstDevice.rackName)) {
+        score += 40
+      }
+      if (args.secondDevice.rackName && areRackNamesAdjacent(secondRack.name, args.secondDevice.rackName)) {
+        score += 40
+      }
+
+      const firstThresholdWatts = typeof firstRack.maxPowerKw === "number" ? firstRack.maxPowerKw * 1000 * 0.8 : Number.POSITIVE_INFINITY
+      const firstProjectedPower = (args.powerByRack.get(firstRack.name) ?? 0) + (args.firstDevice.powerWatts ?? 0)
+      const secondThresholdWatts = typeof secondRack.maxPowerKw === "number" ? secondRack.maxPowerKw * 1000 * 0.8 : Number.POSITIVE_INFINITY
+      const secondProjectedPower = (args.powerByRack.get(secondRack.name) ?? 0) + (args.secondDevice.powerWatts ?? 0)
+      const safe = firstProjectedPower <= firstThresholdWatts && secondProjectedPower <= secondThresholdWatts
+
+      return {
+        firstRack,
+        secondRack,
+        firstPosition,
+        secondPosition,
+        safe,
+        score,
+      }
+    })
+    .filter((candidate): candidate is {
+      firstRack: MutableRack
+      secondRack: MutableRack
+      firstPosition: number
+      secondPosition: number
+      safe: boolean
+      score: number
+    } => !!candidate)
+
+  const safeCandidatePairs = candidatePairs.filter((candidate) => candidate.safe)
+  const candidatePool = safeCandidatePairs.length > 0 ? safeCandidatePairs : candidatePairs
+  candidatePool.sort((left, right) => {
+    if (right.score !== left.score) {
+      return right.score - left.score
+    }
+    const leftKey = `${left.firstRack.name}:${left.secondRack.name}`
+    const rightKey = `${right.firstRack.name}:${right.secondRack.name}`
+    return leftKey.localeCompare(rightKey)
+  })
+
+  const selectedPair = candidatePool[0]
+  return selectedPair
+    ? {
+        firstRack: selectedPair.firstRack,
+        secondRack: selectedPair.secondRack,
+        firstPosition: selectedPair.firstPosition,
+        secondPosition: selectedPair.secondPosition,
+      }
+    : undefined
+}
+
+function synthesizeGeneratedPlacements(state: TemplateAdapterState) {
+  synthesizeRackAdjacency(state)
+
+  for (const device of state.devices.values()) {
+    device.rackUnitHeight = defaultRackUnitHeightForRole(device)
+    state.devices.set(device.name, device)
+  }
+
+  const { occupancyByRack, powerByRack } = buildRackOccupancy(state)
+  const devicesByAffinityKey = new Map<string, MutableDevice[]>()
+  for (const device of state.devices.values()) {
+    const affinityKey = inferPlacementAffinityKey(device.name)
+    const groupedDevices = devicesByAffinityKey.get(affinityKey) ?? []
+    groupedDevices.push(device)
+    devicesByAffinityKey.set(affinityKey, groupedDevices)
+  }
+
+  const groupedDeviceEntries = [...devicesByAffinityKey.entries()].sort((left, right) => {
+    const leftPower = Math.max(...left[1].map((device) => device.powerWatts ?? 0))
+    const rightPower = Math.max(...right[1].map((device) => device.powerWatts ?? 0))
+    if (rightPower !== leftPower) {
+      return rightPower - leftPower
+    }
+    return left[0].localeCompare(right[0])
+  })
+
+  for (const [, groupedDevices] of groupedDeviceEntries) {
+    const pairDevices = isRedundantPairCandidate(groupedDevices)
+      ? groupedDevices.slice().sort((left, right) => left.name.localeCompare(right.name))
+      : undefined
+    if (pairDevices) {
+      const selectedRackPair = chooseAdjacentRackPair({
+        state,
+        firstDevice: pairDevices[0]!,
+        secondDevice: pairDevices[1]!,
+        occupancyByRack,
+        powerByRack,
+      })
+
+      if (selectedRackPair) {
+        pairDevices[0]!.rackName = selectedRackPair.firstRack.name
+        pairDevices[0]!.rackPosition = selectedRackPair.firstPosition
+        reserveRackPosition({ occupancyByRack, rackName: selectedRackPair.firstRack.name, rackPosition: selectedRackPair.firstPosition, unitHeight: pairDevices[0]!.rackUnitHeight ?? 1 })
+        powerByRack.set(selectedRackPair.firstRack.name, (powerByRack.get(selectedRackPair.firstRack.name) ?? 0) + (pairDevices[0]!.powerWatts ?? 0))
+        state.devices.set(pairDevices[0]!.name, pairDevices[0]!)
+
+        pairDevices[1]!.rackName = selectedRackPair.secondRack.name
+        pairDevices[1]!.rackPosition = selectedRackPair.secondPosition
+        reserveRackPosition({ occupancyByRack, rackName: selectedRackPair.secondRack.name, rackPosition: selectedRackPair.secondPosition, unitHeight: pairDevices[1]!.rackUnitHeight ?? 1 })
+        powerByRack.set(selectedRackPair.secondRack.name, (powerByRack.get(selectedRackPair.secondRack.name) ?? 0) + (pairDevices[1]!.powerWatts ?? 0))
+        state.devices.set(pairDevices[1]!.name, pairDevices[1]!)
+        continue
+      }
+
+      state.warnings.push(
+        `No adjacent rack or adjacent-column candidate satisfied deterministic placement constraints for redundant pair ${pairDevices[0]?.name} / ${pairDevices[1]?.name}; rack positions remain unresolved and require user confirmation.`,
+      )
+      pairDevices.forEach((device) => {
+        clearPlacement(device)
+        state.devices.set(device.name, device)
+      })
+      continue
+    }
+
+    for (const device of groupedDevices.slice().sort((left, right) => {
+      const powerDelta = (right.powerWatts ?? 0) - (left.powerWatts ?? 0)
+      if (powerDelta !== 0) {
+        return powerDelta
+      }
+      return left.name.localeCompare(right.name)
+    })) {
+
+      const rackCandidate = chooseRackCandidate({
+        state,
+        device,
+        preferredRackName: device.rackName,
+        occupancyByRack,
+        powerByRack,
+      })
+      if (!rackCandidate) {
+        state.warnings.push(
+          `No rack candidate satisfied deterministic placement constraints for ${device.name}; rack position remains unresolved and requires user confirmation.`,
+        )
+        clearPlacement(device)
+        state.devices.set(device.name, device)
+        continue
+      }
+
+      device.rackName = rackCandidate.rack.name
+      device.rackPosition = rackCandidate.rackPosition
+      state.devices.set(device.name, device)
+      reserveRackPosition({ occupancyByRack, rackName: rackCandidate.rack.name, rackPosition: rackCandidate.rackPosition, unitHeight: device.rackUnitHeight ?? 1 })
+      powerByRack.set(rackCandidate.rack.name, (powerByRack.get(rackCandidate.rack.name) ?? 0) + (device.powerWatts ?? 0))
+    }
+  }
 }
 
 function splitMarkdownSections(markdown: string): MarkdownSection[] {
@@ -841,6 +1557,8 @@ function upsertRack(
     row: patch.row ?? existing?.row ?? inferRackRow(rackName),
     uHeight: patch.uHeight ?? existing?.uHeight,
     maxPowerKw: patch.maxPowerKw ?? existing?.maxPowerKw,
+    adjacentRackNames: mergeStringValues(existing?.adjacentRackNames ?? [], patch.adjacentRackNames ?? []),
+    adjacentColumnRackNames: mergeStringValues(existing?.adjacentColumnRackNames ?? [], patch.adjacentColumnRackNames ?? []),
     sourceRefs: mergeSourceRefs(existing?.sourceRefs ?? [], [sourceRef]),
     statusConfidence: "inferred",
   }
@@ -861,9 +1579,12 @@ function upsertDevice(
   const nextDevice: MutableDevice = {
     name: deviceName,
     role: patch.role ?? existing?.role ?? inferRoleFromDeviceName(deviceName),
+    redundancyIntent: patch.redundancyIntent ?? existing?.redundancyIntent,
     rackName: patch.rackName ?? existing?.rackName,
     rackPosition: patch.rackPosition ?? existing?.rackPosition,
     rackUnitHeight: patch.rackUnitHeight ?? existing?.rackUnitHeight,
+    highAvailabilityGroup: patch.highAvailabilityGroup ?? existing?.highAvailabilityGroup,
+    highAvailabilityRole: patch.highAvailabilityRole ?? existing?.highAvailabilityRole,
     powerWatts: shouldReplacePower ? patch.powerWatts : existing?.powerWatts,
     powerSourcePriority: shouldReplacePower ? incomingPowerPriority : existing?.powerSourcePriority,
     sourceRefs: mergeSourceRefs(existing?.sourceRefs ?? [], [sourceRef]),
@@ -1394,6 +2115,8 @@ function buildStructuredInput(state: TemplateAdapterState): StructuredInput {
         row: rack.row,
         uHeight: rack.uHeight ?? 48,
         maxPowerKw: rack.maxPowerKw ?? 7,
+        adjacentRackIds: rack.adjacentRackNames,
+        adjacentColumnRackIds: rack.adjacentColumnRackNames,
         sourceRefs: rack.sourceRefs,
         statusConfidence: rack.statusConfidence,
       }
@@ -1404,9 +2127,12 @@ function buildStructuredInput(state: TemplateAdapterState): StructuredInput {
     .map((device) => ({
       name: device.name,
       role: device.role,
+      redundancyIntent: device.redundancyIntent,
       rackName: device.rackName,
       rackPosition: device.rackPosition,
       rackUnitHeight: device.rackUnitHeight,
+      highAvailabilityGroup: device.highAvailabilityGroup,
+      highAvailabilityRole: device.highAvailabilityRole,
       powerWatts: device.powerWatts,
       ports: [...device.ports.values()]
         .sort((left, right) => left.name.localeCompare(right.name))
@@ -1447,7 +2173,7 @@ function buildStructuredInput(state: TemplateAdapterState): StructuredInput {
 export async function runExtractStructuredInputFromTemplates(args: {
   input: unknown
   pluginConfig: CloudSolutionConfig
-  runtime: WorkerRuntimeContext
+  runtime?: WorkerRuntimeContext
   rootDirectory: string
 }) {
   if (!args.pluginConfig.allow_document_assist) {
@@ -1459,10 +2185,18 @@ export async function runExtractStructuredInputFromTemplates(args: {
     documentSources: parsedInput.documentSources,
     rootDirectory: args.rootDirectory,
   })
+  const supportSourceDiscovery = discoverParameterResponseSupportSources({
+    rootDirectory: args.rootDirectory,
+    documentSources: normalizedDocumentSources,
+  })
+  const requestedDocumentSourceKeys = new Set(
+    normalizedDocumentSources.map((sourceRef) => `${sourceRef.kind}:${sourceRef.ref}`),
+  )
 
   const markdownPreparation = await prepareDocumentSourcesAsMarkdown({
-    documentSources: normalizedDocumentSources,
+    documentSources: supportSourceDiscovery.documentSources,
     runtime: args.runtime,
+    worktree: args.rootDirectory,
   })
 
   const state = createTemplateAdapterState()
@@ -1537,7 +2271,7 @@ export async function runExtractStructuredInputFromTemplates(args: {
     )
   }
 
-  if (state.devices.size > 0 && state.inventoryProfiles.length === 0) {
+  if (state.devices.size > 0 && state.inventoryProfiles.length === 0 && state.parameterPowerProfiles.length === 0) {
     state.warnings.push(
       "No project-bound inventory workbook was recognized, so device power could not be resolved from required user input.",
     )
@@ -1555,6 +2289,9 @@ export async function runExtractStructuredInputFromTemplates(args: {
     )
   }
 
+  pruneResolvedPowerWarnings(state)
+  synthesizeGeneratedPlacements(state)
+
   const structuredInput = buildStructuredInput(state)
 
   return {
@@ -1564,11 +2301,12 @@ export async function runExtractStructuredInputFromTemplates(args: {
       structuredInput,
     },
     warnings: uniqueStrings([
+      ...supportSourceDiscovery.warnings,
       ...markdownPreparation.conversionWarnings,
       ...state.warnings,
     ]),
     summary: {
-      parsedSourceCount: markdownPreparation.convertedDocuments.length,
+      parsedSourceCount: markdownPreparation.convertedDocuments.filter((document) => requestedDocumentSourceKeys.has(`${document.sourceRef.kind}:${document.sourceRef.ref}`)).length,
       rackCount: structuredInput.racks.length,
       deviceCount: structuredInput.devices.length,
       linkCount: structuredInput.links.length,

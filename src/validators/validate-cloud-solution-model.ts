@@ -40,6 +40,10 @@ const networkInfrastructureExcludedRoles = new Set([
   "storage",
 ])
 
+const powerValidationExcludedRoles = new Set([
+  "cable-manager",
+])
+
 const severityRank: Record<ValidationIssue["severity"], number> = {
   blocking: 0,
   warning: 1,
@@ -1129,9 +1133,10 @@ function validateRackPowerBudgets(args: {
   requiresDeviceRackLayout: boolean
 }): ValidationIssue[] {
   const { devices, rackMap, requiresDeviceRackLayout } = args
+  const powerValidatedDevices = devices.filter((device) => !powerValidationExcludedRoles.has(device.role))
   const requiresPowerPlanning = requiresDeviceRackLayout
     && (
-      devices.some((device) => typeof device.powerWatts === "number" || !!device.highAvailabilityGroup)
+      powerValidatedDevices.some((device) => typeof device.powerWatts === "number" || !!device.highAvailabilityGroup)
       || [...rackMap.values()].some((rack) => typeof rack.maxPowerKw === "number")
     )
 
@@ -1140,7 +1145,7 @@ function validateRackPowerBudgets(args: {
   }
 
   const issues: ValidationIssue[] = []
-  const placedDevices = devices.filter((device) => device.rackId && rackMap.has(device.rackId))
+  const placedDevices = powerValidatedDevices.filter((device) => device.rackId && rackMap.has(device.rackId))
   const rackIdsWithPlacedDevices = [...new Set(placedDevices.map((device) => device.rackId!))]
 
   for (const rackId of rackIdsWithPlacedDevices) {
@@ -1188,7 +1193,7 @@ function validateRackPowerBudgets(args: {
 
   const powerByRack = new Map<string, number>()
 
-  for (const device of devices) {
+  for (const device of powerValidatedDevices) {
     if (!device.rackId || typeof device.powerWatts !== "number" || !rackMap.has(device.rackId)) {
       continue
     }

@@ -950,9 +950,9 @@ describe("createCloudSolutionRuntime", () => {
     expect(extractResult.draftInput.structuredInput.devices).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          name: "某项目-管理域节点-B1H服务器-CS5280H3-A01",
+          name: "业务POD-B1H服务器-CS5280H3-1",
           ports: expect.arrayContaining([
-            expect.objectContaining({ name: "3/0", portIndex: 0 }),
+            expect.objectContaining({ name: "0/0", portIndex: 0 }),
           ]),
         }),
       ]),

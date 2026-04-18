@@ -102,6 +102,7 @@ export async function runExtractDocumentCandidateFacts(args: {
     prepareDocumentSourcesAsMarkdown({
       documentSources: normalizedDocumentSources,
       runtime: args.runtime,
+      worktree: args.rootDirectory,
     }),
     prepareRequirementAdvisorySources({
       requirement: parsedInput.requirement,

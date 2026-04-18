@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -25,6 +25,24 @@ function createTempWorkspace(): string {
   writeFileSync(join(fixturesDirectory, "switch-parameters.xlsx"), "switch parameter workbook")
   createdDirectories.push(directory)
   return directory
+}
+
+function loadLocalConvertedMarkdownManifest(rootDirectory: string) {
+  const manifestPath = join(rootDirectory, "test", "converted-markdown", "convertedDocuments.json")
+  if (!existsSync(manifestPath)) {
+    return undefined
+  }
+
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+    convertedDocuments: Array<{
+      kind: "document" | "diagram" | "image"
+      ref: string
+      note?: string
+      markdownRef: string
+    }>
+  }
+
+  return manifest.convertedDocuments
 }
 
 afterEach(() => {
@@ -172,7 +190,8 @@ describe("runExtractStructuredInputFromTemplates", () => {
           name: "业务POD-C1服务器-1",
           role: "server",
           rackName: "F01",
-          rackPosition: 10,
+          rackPosition: expect.any(Number),
+          rackUnitHeight: 2,
           powerWatts: 900,
           ports: expect.arrayContaining([
             expect.objectContaining({ name: "3/0", portType: "inband-mgmt", portIndex: 0 }),
@@ -183,7 +202,8 @@ describe("runExtractStructuredInputFromTemplates", () => {
           name: "业务POD-千兆带内管理TOR-1",
           role: "switch",
           rackName: "F01",
-          rackPosition: 42,
+          rackPosition: expect.any(Number),
+          rackUnitHeight: 1,
         }),
       ]),
     )
@@ -413,6 +433,1240 @@ describe("runExtractStructuredInputFromTemplates", () => {
         expect.objectContaining({ name: "业务POD-B1H服务器-CS5280H3-1", powerWatts: 892 }),
       ]),
     )
+  })
+
+  test("overrides rack-layout 1U placeholders with parameter-response rack unit height", async () => {
+    const workspace = createTempWorkspace()
+    const pluginConfig = loadPluginConfig(process.cwd())
+    const supportDirectory = join(workspace, "test", "设备参数应答表")
+    mkdirSync(supportDirectory, { recursive: true })
+    writeFileSync(join(supportDirectory, "设备参数应答表-华三0202.xlsx"), "switch parameter workbook")
+
+    const templateSources = [
+      { kind: "document" as const, ref: "fixtures/rack-layout-template.xlsx", note: "Rack layout template" },
+    ]
+    const parameterSource = {
+      kind: "document" as const,
+      ref: "test/设备参数应答表/服务器参数应答表.xlsx",
+      note: "服务器参数应答表",
+    }
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: templateSources[0],
+                markdown: [
+                  "## Sheet1",
+                  "",
+                  "| Unnamed: 0 | F列02柜 | 机柜(F02） | Unnamed: 3 | 7kw |",
+                  "| --- | --- | --- | --- | --- |",
+                  "| NaN | 1339 | 业务POD-C5服务器-NF8260-M7-A0-R0-00-12 | 5 | NaN |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: parameterSource,
+                markdown: [
+                  "## Sheet1",
+                  "",
+                  "| 设备名称 | 设备型号 | 设备数量 | 设备尺寸（宽*深*高mm） | 设备大小(U) | 设备实配重量(KG) | 设备满配重量(KG) | 设备实配运行功耗（W） | 设备满配运行功耗（W） |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| C5服务器 | NF8260-M7-A0-R0-00 | 1 | 482*870*87 | 2 | 24 | 32.6 | 1339 | 2000 |",
+                ].join("\n"),
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+      ],
+    })
+
+    const result = await runExtractStructuredInputFromTemplates({
+      input: {
+        requirement: {
+          id: "req-template-rack-unit-override-1",
+          projectName: "Template Rack Unit Override Example",
+          scopeType: "data-center",
+          artifactRequests: ["device-rack-layout"],
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+        documentSources: templateSources,
+      },
+      pluginConfig,
+      runtime: createWorkerRuntimeContext(client, {
+        directory: workspace,
+        worktree: workspace,
+      }),
+      rootDirectory: workspace,
+    })
+
+    expect(result.draftInput.structuredInput.devices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "业务POD-C5服务器-NF8260-M7-A0-R0-00-12",
+          rackPosition: expect.any(Number),
+          rackUnitHeight: 2,
+          powerWatts: 1339,
+        }),
+      ]),
+    )
+  })
+
+  test("auto-discovers parameter-response support workbooks and matches power by English model when Chinese names differ", async () => {
+    const workspace = createTempWorkspace()
+    const pluginConfig = loadPluginConfig(process.cwd())
+    const supportDirectory = join(workspace, "test", "设备参数应答表")
+    mkdirSync(supportDirectory, { recursive: true })
+    writeFileSync(join(supportDirectory, "服务器参数应答表.xlsx"), "server parameter workbook")
+    writeFileSync(join(supportDirectory, "设备参数应答表-华三0202.xlsx"), "switch parameter workbook")
+
+    const templateSources = [
+      { kind: "document" as const, ref: "fixtures/cabling-template.xlsx", note: "Cable planning template" },
+      { kind: "document" as const, ref: "fixtures/rack-layout-template.xlsx", note: "Rack layout template" },
+    ]
+    const discoveredParameterSources = [
+      {
+        kind: "document" as const,
+        ref: "test/设备参数应答表/服务器参数应答表.xlsx",
+        note: "服务器参数应答表",
+      },
+      {
+        kind: "document" as const,
+        ref: "test/设备参数应答表/设备参数应答表-华三0202.xlsx",
+        note: "设备参数应答表-华三0202",
+      },
+    ]
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: templateSources[0],
+                markdown: [
+                  "## 服务器带内带外连线",
+                  "",
+                  "| 线缆编号 | 线缆名称 | 线缆程式 | 线缆 条数 | 线缆长度 (米) | 线缆 总长度 （米） | 起始端 | Unnamed: 7 | 目的端 | Unnamed: 9 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | NaN | NaN | NaN | NaN | NaN | 机架 | 设备名称/型号 | 机架 | 设备名称/型号 |",
+                  "| 1 | 以太网电缆 | F/UTP六类屏蔽线 | 1 | 5 | 5 | E15 | 业务POD-B1H服务器-CS5280H3-1 | E15 | 业务POD-千兆带内管理TOR-H3C S5560X-54C-EI-11 |",
+                  "| 2 | 以太网电缆 | F/UTP六类屏蔽线 | 1 | 5 | 5 | E15 | 业务POD-未知设备-ABC1234-1 | E15 | 业务POD-千兆带内管理TOR-H3C S5560X-54C-EI-11 |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: templateSources[1],
+                markdown: [
+                  "## Sheet1",
+                  "",
+                  "| Unnamed: 0 | E列15柜 | 机柜(E15） | Unnamed: 3 | NaN |",
+                  "| --- | --- | --- | --- | --- |",
+                  "| NaN | NaN | 业务POD-B1H服务器-CS5280H3-1 | 17 | NaN |",
+                  "| NaN | NaN | 业务POD-未知设备-ABC1234-1 | 14 | NaN |",
+                  "| NaN | NaN | 业务POD-千兆带内管理TOR-H3C S5560X-54C-EI-11 | 42 | NaN |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: discoveredParameterSources[0],
+                markdown: [
+                  "## Sheet1",
+                  "",
+                  "| 设备名称 | 设备型号 | 设备数量 | 设备尺寸（宽*深*高mm） | 设备大小(U) | 设备实配重量(KG) | 设备满配重量(KG) | 设备实配运行功耗（W） | 设备满配运行功耗（W） |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| 其他服务器 | CS5280H3 | 1 | 482*723*87 | 2 | 23 | 33 | 892 | 1300 |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: discoveredParameterSources[1],
+                markdown: [
+                  "## 设备参数表",
+                  "",
+                  "| 设备名称 | 设备型号 | 设备数量 | 设备尺寸（宽*深*高mm） | 设备大小(U) | 设备实配重量(KG) | 设备满配重量(KG) | 设备实配运行功耗（W） | 设备满配运行功耗（W） |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| 干兆带内/带外管理TOR | H3C S5560X-54C-EI | 1 | 440*360*44 | 1 | 7.5 | 7.5 | 55 | 116 |",
+                ].join("\n"),
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+      ],
+    })
+
+    const result = await runExtractStructuredInputFromTemplates({
+      input: {
+        requirement: {
+          id: "req-template-direct-parameter-model-1",
+          projectName: "Template Direct Parameter Model Example",
+          scopeType: "data-center",
+          artifactRequests: ["device-rack-layout", "device-cabling-table"],
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+        documentSources: templateSources,
+      },
+      pluginConfig,
+      runtime: createWorkerRuntimeContext(client, {
+        directory: workspace,
+        worktree: workspace,
+      }),
+      rootDirectory: workspace,
+    })
+
+    expect(result.summary).toEqual({
+      parsedSourceCount: 2,
+      rackCount: 1,
+      deviceCount: 3,
+      linkCount: 2,
+    })
+    expect(result.warnings).toContain(
+      "Discovered 2 parameter-response support workbook(s) under test/设备参数应答表 for deterministic power hydration.",
+    )
+    expect(result.warnings).not.toContain(
+      "No device parameter-response workbook was recognized, so device power could not be resolved from required user input.",
+    )
+    expect(result.warnings).toContain(
+      "No parameter-response workbook row matched device 业务POD-未知设备-ABC1234-1 by deterministic model/title rules, so device power remains unresolved and requires user confirmation.",
+    )
+    expect(result.draftInput.structuredInput.devices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "业务POD-B1H服务器-CS5280H3-1", powerWatts: 892 }),
+        expect.objectContaining({ name: "业务POD-千兆带内管理TOR-H3C S5560X-54C-EI-11", powerWatts: 55 }),
+        expect.objectContaining({ name: "业务POD-未知设备-ABC1234-1", powerWatts: undefined }),
+      ]),
+    )
+  })
+
+  test("does not supplement parameter-response support from the bundle when the real support folder exists", async () => {
+    const workspace = createTempWorkspace()
+    const pluginConfig = loadPluginConfig(process.cwd())
+    const supportDirectory = join(workspace, "test", "设备参数应答表")
+    mkdirSync(supportDirectory, { recursive: true })
+    writeFileSync(join(supportDirectory, "服务器参数应答表.xlsx"), "server parameter workbook")
+
+    const packagedBundleDirectory = join(workspace, "dist", "runtime-assets", "converted-markdown")
+    mkdirSync(packagedBundleDirectory, { recursive: true })
+    writeFileSync(join(packagedBundleDirectory, "cabling.md"), [
+      "## 服务器带内带外连线",
+      "",
+      "| 线缆编号 | 线缆名称 | 线缆程式 | 线缆 条数 | 线缆长度 (米) | 线缆 总长度 （米） | 起始端 | Unnamed: 7 | 目的端 | Unnamed: 9 |",
+      "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+      "| NaN | NaN | NaN | NaN | NaN | NaN | 机架 | 设备名称/型号 | 机架 | 设备名称/型号 |",
+      "| 1 | 以太网电缆 | F/UTP六类屏蔽线 | 1 | 5 | 5 | E15 | 业务POD-B1H服务器-CS5280H3-1 | E15 | 业务POD-千兆带内管理TOR-H3C S5560X-54C-EI-11 |",
+    ].join("\n"))
+    writeFileSync(join(packagedBundleDirectory, "rack-layout.md"), [
+      "## Sheet1",
+      "",
+      "| Unnamed: 0 | E列15柜 | 机柜(E15） | Unnamed: 3 | NaN |",
+      "| --- | --- | --- | --- | --- |",
+      "| NaN | NaN | 业务POD-B1H服务器-CS5280H3-1 | 17 | NaN |",
+      "| NaN | NaN | 业务POD-千兆带内管理TOR-H3C S5560X-54C-EI-11 | 42 | NaN |",
+    ].join("\n"))
+    writeFileSync(join(packagedBundleDirectory, "server-parameters.md"), [
+      "## Sheet1",
+      "",
+      "| 设备名称 | 设备型号 | 设备数量 | 设备尺寸（宽*深*高mm） | 设备大小(U) | 设备实配重量(KG) | 设备满配重量(KG) | 设备实配运行功耗（W） | 设备满配运行功耗（W） |",
+      "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+      "| B1H服务器 | CS5280H3 | 1 | 482*723*87 | 2 | 23 | 33 | 892 | 1300 |",
+    ].join("\n"))
+    writeFileSync(join(packagedBundleDirectory, "switch-parameters.md"), [
+      "## 设备参数表",
+      "",
+      "| 设备名称 | 设备型号 | 设备数量 | 设备尺寸（宽*深*高mm） | 设备大小(U) | 设备实配重量(KG) | 设备满配重量(KG) | 设备实配运行功耗（W） | 设备满配运行功耗（W） |",
+      "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+      "| 干兆带内/带外管理TOR | H3C S5560X-54C-EI | 1 | 440*360*44 | 1 | 7.5 | 7.5 | 55 | 116 |",
+    ].join("\n"))
+    writeFileSync(join(packagedBundleDirectory, "convertedDocuments.json"), JSON.stringify({
+      convertedDocuments: [
+        {
+          kind: "document",
+          ref: "fixtures/cabling-template.xlsx",
+          note: "Cable planning template",
+          markdownRef: "test/converted-markdown/cabling.md",
+        },
+        {
+          kind: "document",
+          ref: "fixtures/rack-layout-template.xlsx",
+          note: "Rack layout template",
+          markdownRef: "test/converted-markdown/rack-layout.md",
+        },
+        {
+          kind: "document",
+          ref: "test/设备参数应答表/服务器参数应答表.xlsx",
+          note: "服务器参数应答表",
+          markdownRef: "test/converted-markdown/server-parameters.md",
+        },
+        {
+          kind: "document",
+          ref: "test/设备参数应答表/设备参数应答表-华三0202.xlsx",
+          note: "设备参数应答表-华三0202",
+          markdownRef: "test/converted-markdown/switch-parameters.md",
+        },
+      ],
+    }, null, 2))
+
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: { kind: "document", ref: "fixtures/cabling-template.xlsx", note: "Cable planning template" },
+                markdown: [
+                  "## 服务器带内带外连线",
+                  "",
+                  "| 线缆编号 | 线缆名称 | 线缆程式 | 线缆 条数 | 线缆长度 (米) | 线缆 总长度 （米） | 起始端 | Unnamed: 7 | 目的端 | Unnamed: 9 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | NaN | NaN | NaN | NaN | NaN | 机架 | 设备名称/型号 | 机架 | 设备名称/型号 |",
+                  "| 1 | 以太网电缆 | F/UTP六类屏蔽线 | 1 | 5 | 5 | E15 | 业务POD-B1H服务器-CS5280H3-1 | E15 | 业务POD-千兆带内管理TOR-H3C S5560X-54C-EI-11 |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: { kind: "document", ref: "fixtures/rack-layout-template.xlsx", note: "Rack layout template" },
+                markdown: [
+                  "## Sheet1",
+                  "",
+                  "| Unnamed: 0 | E列15柜 | 机柜(E15） | Unnamed: 3 | NaN |",
+                  "| --- | --- | --- | --- | --- |",
+                  "| NaN | NaN | 业务POD-B1H服务器-CS5280H3-1 | 17 | NaN |",
+                  "| NaN | NaN | 业务POD-千兆带内管理TOR-H3C S5560X-54C-EI-11 | 42 | NaN |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: { kind: "document", ref: "test/设备参数应答表/服务器参数应答表.xlsx", note: "服务器参数应答表" },
+                markdown: [
+                  "## Sheet1",
+                  "",
+                  "| 设备名称 | 设备型号 | 设备数量 | 设备尺寸（宽*深*高mm） | 设备大小(U) | 设备实配重量(KG) | 设备满配重量(KG) | 设备实配运行功耗（W） | 设备满配运行功耗（W） |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| B1H服务器 | CS5280H3 | 1 | 482*723*87 | 2 | 23 | 33 | 892 | 1300 |",
+                ].join("\n"),
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+      ],
+    })
+
+    const result = await runExtractStructuredInputFromTemplates({
+      input: {
+        requirement: {
+          id: "req-template-real-folder-trust-boundary-1",
+          projectName: "Template Real Folder Trust Boundary Example",
+          scopeType: "data-center",
+          artifactRequests: ["device-rack-layout", "device-cabling-table"],
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+        documentSources: [
+          { kind: "document" as const, ref: "fixtures/cabling-template.xlsx", note: "Cable planning template" },
+          { kind: "document" as const, ref: "fixtures/rack-layout-template.xlsx", note: "Rack layout template" },
+        ],
+      },
+      pluginConfig,
+      runtime: createWorkerRuntimeContext(client, {
+        directory: workspace,
+        worktree: workspace,
+      }),
+      rootDirectory: workspace,
+    })
+
+    expect(result.warnings).toContain(
+      "Discovered 1 parameter-response support workbook(s) under test/设备参数应答表 for deterministic power hydration.",
+    )
+    expect(result.warnings).not.toContain(
+      "Recovered 1 parameter-response support workbook reference(s) from the deterministic converted-markdown bundle.",
+    )
+    expect(result.draftInput.structuredInput.devices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "业务POD-B1H服务器-CS5280H3-1", powerWatts: 892 }),
+        expect.objectContaining({ name: "业务POD-千兆带内管理TOR-H3C S5560X-54C-EI-11", powerWatts: undefined }),
+      ]),
+    )
+  })
+
+  test("recovers parameter-response support refs from packaged runtime assets when the support Excel folder is absent", async () => {
+    const workspace = createTempWorkspace()
+    const pluginConfig = loadPluginConfig(process.cwd())
+    const packagedBundleDirectory = join(workspace, "dist", "runtime-assets", "converted-markdown")
+    mkdirSync(packagedBundleDirectory, { recursive: true })
+
+    writeFileSync(join(packagedBundleDirectory, "cabling.md"), [
+      "## 服务器带内带外连线",
+      "",
+      "| 线缆编号 | 线缆名称 | 线缆程式 | 线缆 条数 | 线缆长度 (米) | 线缆 总长度 （米） | 起始端 | Unnamed: 7 | 目的端 | Unnamed: 9 |",
+      "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+      "| NaN | NaN | NaN | NaN | NaN | NaN | 机架 | 设备名称/型号 | 机架 | 设备名称/型号 |",
+      "| 1 | 以太网电缆 | F/UTP六类屏蔽线 | 1 | 5 | 5 | E15 | 业务POD-B1H服务器-CS5280H3-1 | E15 | 业务POD-千兆带内管理TOR-H3C S5560X-54C-EI-11 |",
+    ].join("\n"))
+    writeFileSync(join(packagedBundleDirectory, "rack-layout.md"), [
+      "## Sheet1",
+      "",
+      "| Unnamed: 0 | E列15柜 | 机柜(E15） | Unnamed: 3 | NaN |",
+      "| --- | --- | --- | --- | --- |",
+      "| NaN | NaN | 业务POD-B1H服务器-CS5280H3-1 | 17 | NaN |",
+      "| NaN | NaN | 业务POD-千兆带内管理TOR-H3C S5560X-54C-EI-11 | 42 | NaN |",
+    ].join("\n"))
+    writeFileSync(join(packagedBundleDirectory, "server-parameters.md"), [
+      "## Sheet1",
+      "",
+      "| 设备名称 | 设备型号 | 设备数量 | 设备尺寸（宽*深*高mm） | 设备大小(U) | 设备实配重量(KG) | 设备满配重量(KG) | 设备实配运行功耗（W） | 设备满配运行功耗（W） |",
+      "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+      "| B1H服务器 | CS5280H3 | 1 | 482*723*87 | 2 | 23 | 33 | 892 | 1300 |",
+    ].join("\n"))
+    writeFileSync(join(packagedBundleDirectory, "switch-parameters.md"), [
+      "## 设备参数表",
+      "",
+      "| 设备名称 | 设备型号 | 设备数量 | 设备尺寸（宽*深*高mm） | 设备大小(U) | 设备实配重量(KG) | 设备满配重量(KG) | 设备实配运行功耗（W） | 设备满配运行功耗（W） |",
+      "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+      "| 干兆带内/带外管理TOR | H3C S5560X-54C-EI | 1 | 440*360*44 | 1 | 7.5 | 7.5 | 55 | 116 |",
+    ].join("\n"))
+    writeFileSync(join(packagedBundleDirectory, "convertedDocuments.json"), JSON.stringify({
+      convertedDocuments: [
+        {
+          kind: "document",
+          ref: "fixtures/cabling-template.xlsx",
+          note: "Cable planning template",
+          markdownRef: "test/converted-markdown/cabling.md",
+        },
+        {
+          kind: "document",
+          ref: "fixtures/rack-layout-template.xlsx",
+          note: "Rack layout template",
+          markdownRef: "test/converted-markdown/rack-layout.md",
+        },
+        {
+          kind: "document",
+          ref: "test/设备参数应答表/服务器参数应答表.xlsx",
+          note: "服务器参数应答表",
+          markdownRef: "test/converted-markdown/server-parameters.md",
+        },
+        {
+          kind: "document",
+          ref: "test/设备参数应答表/设备参数应答表-华三0202.xlsx",
+          note: "设备参数应答表-华三0202",
+          markdownRef: "test/converted-markdown/switch-parameters.md",
+        },
+      ],
+    }, null, 2))
+
+    const result = await runExtractStructuredInputFromTemplates({
+      input: {
+        requirement: {
+          id: "req-template-packaged-parameter-support-1",
+          projectName: "Template Packaged Parameter Support Example",
+          scopeType: "data-center",
+          artifactRequests: ["device-rack-layout", "device-cabling-table"],
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+        documentSources: [
+          { kind: "document" as const, ref: "fixtures/cabling-template.xlsx", note: "Cable planning template" },
+          { kind: "document" as const, ref: "fixtures/rack-layout-template.xlsx", note: "Rack layout template" },
+        ],
+      },
+      pluginConfig,
+      rootDirectory: workspace,
+    })
+
+    expect(result.warnings).toContain(
+      "Recovered 2 parameter-response support workbook reference(s) from the deterministic converted-markdown bundle.",
+    )
+    expect(result.warnings).not.toContain(
+      "Discovered 2 parameter-response support workbook(s) under test/设备参数应答表 for deterministic power hydration.",
+    )
+    expect(result.draftInput.structuredInput.devices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "业务POD-B1H服务器-CS5280H3-1", powerWatts: 892 }),
+        expect.objectContaining({ name: "业务POD-千兆带内管理TOR-H3C S5560X-54C-EI-11", powerWatts: 55 }),
+      ]),
+    )
+  })
+
+  test("does not guess power across conflicting explicit server family titles even when the English model matches", async () => {
+    const workspace = createTempWorkspace()
+    const pluginConfig = loadPluginConfig(process.cwd())
+    const supportDirectory = join(workspace, "test", "设备参数应答表")
+    mkdirSync(supportDirectory, { recursive: true })
+    writeFileSync(join(supportDirectory, "服务器参数应答表.xlsx"), "server parameter workbook")
+
+    const templateSources = [
+      { kind: "document" as const, ref: "fixtures/cabling-template.xlsx", note: "Cable planning template" },
+      { kind: "document" as const, ref: "fixtures/rack-layout-template.xlsx", note: "Rack layout template" },
+    ]
+    const discoveredParameterSource = {
+      kind: "document" as const,
+      ref: "test/设备参数应答表/服务器参数应答表.xlsx",
+      note: "服务器参数应答表",
+    }
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: templateSources[0],
+                markdown: [
+                  "## 服务器带内带外连线",
+                  "",
+                  "| 线缆编号 | 线缆名称 | 线缆程式 | 线缆 条数 | 线缆长度 (米) | 线缆 总长度 （米） | 起始端 | Unnamed: 7 | 目的端 | Unnamed: 9 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | NaN | NaN | NaN | NaN | NaN | 机架 | 设备名称/型号 | 机架 | 设备名称/型号 |",
+                  "| 1 | 以太网电缆 | F/UTP六类屏蔽线 | 1 | 5 | 5 | E15 | 业务POD-B1H服务器-CS5280H3-1 | E15 | 业务POD-千兆带内管理TOR-H3C S5560X-54C-EI-11 |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: templateSources[1],
+                markdown: [
+                  "## Sheet1",
+                  "",
+                  "| Unnamed: 0 | E列15柜 | 机柜(E15） | Unnamed: 3 | NaN |",
+                  "| --- | --- | --- | --- | --- |",
+                  "| NaN | NaN | 业务POD-B1H服务器-CS5280H3-1 | 17 | NaN |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: discoveredParameterSource,
+                markdown: [
+                  "## Sheet1",
+                  "",
+                  "| 设备名称 | 设备型号 | 设备数量 | 设备尺寸（宽*深*高mm） | 设备大小(U) | 设备实配重量(KG) | 设备满配重量(KG) | 设备实配运行功耗（W） | 设备满配运行功耗（W） |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| C1H服务器 | CS5280H3 | 1 | 482*723*87 | 2 | 23 | 33 | 861 | 1300 |",
+                ].join("\n"),
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+      ],
+    })
+
+    const result = await runExtractStructuredInputFromTemplates({
+      input: {
+        requirement: {
+          id: "req-template-direct-parameter-conflict-1",
+          projectName: "Template Direct Parameter Conflict Example",
+          scopeType: "data-center",
+          artifactRequests: ["device-rack-layout", "device-cabling-table"],
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+        documentSources: templateSources,
+      },
+      pluginConfig,
+      runtime: createWorkerRuntimeContext(client, {
+        directory: workspace,
+        worktree: workspace,
+      }),
+      rootDirectory: workspace,
+    })
+
+    expect(result.draftInput.structuredInput.devices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "业务POD-B1H服务器-CS5280H3-1", powerWatts: undefined }),
+      ]),
+    )
+    expect(result.warnings).toContain(
+      "No parameter-response workbook row matched device 业务POD-B1H服务器-CS5280H3-1 by deterministic model/title rules, so device power remains unresolved and requires user confirmation.",
+    )
+  })
+
+  test("does not warn unresolved power when rack-layout already provided deterministic power", async () => {
+    const workspace = createTempWorkspace()
+    const pluginConfig = loadPluginConfig(process.cwd())
+    const supportDirectory = join(workspace, "test", "设备参数应答表")
+    mkdirSync(supportDirectory, { recursive: true })
+    writeFileSync(join(supportDirectory, "设备参数应答表-华三0202.xlsx"), "switch parameter workbook")
+
+    const templateSources = [
+      { kind: "document" as const, ref: "fixtures/cabling-template.xlsx", note: "Cable planning template" },
+      { kind: "document" as const, ref: "fixtures/rack-layout-template.xlsx", note: "Rack layout template" },
+    ]
+    const discoveredParameterSource = {
+      kind: "document" as const,
+      ref: "test/设备参数应答表/设备参数应答表-华三0202.xlsx",
+      note: "设备参数应答表-华三0202",
+    }
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: templateSources[0],
+                markdown: [
+                  "## 服务器带内带外连线",
+                  "",
+                  "| 线缆编号 | 线缆名称 | 线缆程式 | 线缆 条数 | 线缆长度 (米) | 线缆 总长度 （米） | 起始端 | Unnamed: 7 | 目的端 | Unnamed: 9 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | NaN | NaN | NaN | NaN | NaN | 机架 | 设备名称/型号 | 机架 | 设备名称/型号 |",
+                  "| 1 | 以太网电缆 | F/UTP六类屏蔽线 | 1 | 5 | 5 | F02 | 业务POD-全流量安全监测（探针）-Tss10000-S85-2 | F02 | 业务POD-千兆带内管理TOR-H3C S5560X-54C-EI-11 |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: templateSources[1],
+                markdown: [
+                  "## Sheet1",
+                  "",
+                  "| Unnamed: 0 | F列02柜 | 机柜(F02） | Unnamed: 3 | NaN |",
+                  "| --- | --- | --- | --- | --- |",
+                  "| NaN | 500 | 业务POD-全流量安全监测（探针）-Tss10000-S85-2 | 41 | NaN |",
+                  "| NaN | NaN | 业务POD-千兆带内管理TOR-H3C S5560X-54C-EI-11 | 42 | NaN |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: discoveredParameterSource,
+                markdown: [
+                  "## 设备参数表",
+                  "",
+                  "| 设备名称 | 设备型号 | 设备数量 | 设备尺寸（宽*深*高mm） | 设备大小(U) | 设备实配重量(KG) | 设备满配重量(KG) | 设备实配运行功耗（W） | 设备满配运行功耗（W） |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| 干兆带内/带外管理TOR | H3C S5560X-54C-EI | 1 | 440*360*44 | 1 | 7.5 | 7.5 | 55 | 116 |",
+                ].join("\n"),
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+      ],
+    })
+
+    const result = await runExtractStructuredInputFromTemplates({
+      input: {
+        requirement: {
+          id: "req-template-existing-power-no-warning-1",
+          projectName: "Template Existing Power No Warning Example",
+          scopeType: "data-center",
+          artifactRequests: ["device-rack-layout", "device-cabling-table"],
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+        documentSources: templateSources,
+      },
+      pluginConfig,
+      runtime: createWorkerRuntimeContext(client, {
+        directory: workspace,
+        worktree: workspace,
+      }),
+      rootDirectory: workspace,
+    })
+
+    expect(result.draftInput.structuredInput.devices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "业务POD-全流量安全监测（探针）-Tss10000-S85-2", powerWatts: 500 }),
+      ]),
+    )
+    expect(result.warnings).not.toContain(
+      "No parameter-response workbook row matched device 业务POD-全流量安全监测（探针）-Tss10000-S85-2 by deterministic model/title rules, so device power remains unresolved and requires user confirmation.",
+    )
+  })
+
+  test("synthesizes adjacent placement for a redundant pair that initially shares one preferred rack", async () => {
+    const workspace = createTempWorkspace()
+    const pluginConfig = loadPluginConfig(process.cwd())
+    const supportDirectory = join(workspace, "test", "设备参数应答表")
+    mkdirSync(supportDirectory, { recursive: true })
+    writeFileSync(join(supportDirectory, "服务器参数应答表.xlsx"), "server parameter workbook")
+    writeFileSync(join(supportDirectory, "设备参数应答表-华三0202.xlsx"), "switch parameter workbook")
+
+    const templateSources = [
+      { kind: "document" as const, ref: "fixtures/cabling-template.xlsx", note: "Cable planning template" },
+      { kind: "document" as const, ref: "fixtures/rack-layout-template.xlsx", note: "Rack layout template" },
+    ]
+    const parameterSource = { kind: "document" as const, ref: "test/设备参数应答表/设备参数应答表-华三0202.xlsx", note: "设备参数应答表-华三0202" }
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: templateSources[0],
+                markdown: [
+                  "## 服务器带内带外连线",
+                  "",
+                  "| 线缆编号 | 线缆名称 | 线缆程式 | 线缆 条数 | 线缆长度 (米) | 线缆 总长度 （米） | 起始端 | Unnamed: 7 | 目的端 | Unnamed: 9 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | NaN | NaN | NaN | NaN | NaN | 机架 | 设备名称/型号 | 机架 | 设备名称/型号 |",
+                  "| 1 | 以太网电缆 | F/UTP六类屏蔽线 | 1 | 5 | 5 | E15 | 业务POD-千兆带内管理TOR-H3C S5560X-54C-EI-11 | E15 | 对端设备-1 |",
+                  "| 2 | 以太网电缆 | F/UTP六类屏蔽线 | 1 | 5 | 5 | E15 | 业务POD-千兆带内管理TOR-H3C S5560X-54C-EI-12 | E14 | 对端设备-2 |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: templateSources[1],
+                markdown: [
+                  "## Sheet1",
+                  "",
+                  "| Unnamed: 0 | E列14柜 | 机柜(E14） | Unnamed: 3 | 7kw | Unnamed: 5 | E列15柜 | 机柜(E15） | Unnamed: 8 | 7kw |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: parameterSource,
+                markdown: [
+                  "## 设备参数表",
+                  "",
+                  "| 设备名称 | 设备型号 | 设备数量 | 设备尺寸（宽*深*高mm） | 设备大小(U) | 设备实配重量(KG) | 设备满配重量(KG) | 设备实配运行功耗（W） | 设备满配运行功耗（W） |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| 干兆带内/带外管理TOR | H3C S5560X-54C-EI | 2 | 440*360*44 | 1 | 7.5 | 7.5 | 55 | 116 |",
+                ].join("\n"),
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+      ],
+    })
+
+    const result = await runExtractStructuredInputFromTemplates({
+      input: {
+        requirement: {
+          id: "req-template-generated-placement-pair-1",
+          projectName: "Template Generated Placement Pair Example",
+          scopeType: "data-center",
+          artifactRequests: ["device-rack-layout", "device-cabling-table"],
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+        documentSources: templateSources,
+      },
+      pluginConfig,
+      runtime: createWorkerRuntimeContext(client, {
+        directory: workspace,
+        worktree: workspace,
+      }),
+      rootDirectory: workspace,
+    })
+
+    const switchA = result.draftInput.structuredInput.devices.find((device) => device.name === "业务POD-千兆带内管理TOR-H3C S5560X-54C-EI-11")
+    const switchB = result.draftInput.structuredInput.devices.find((device) => device.name === "业务POD-千兆带内管理TOR-H3C S5560X-54C-EI-12")
+    const racks = result.draftInput.structuredInput.racks
+
+    expect(switchA).toEqual(expect.objectContaining({ rackUnitHeight: 1, rackPosition: expect.any(Number) }))
+    expect(switchB).toEqual(expect.objectContaining({ rackUnitHeight: 1, rackPosition: expect.any(Number) }))
+    expect(switchA?.rackName).not.toBe(switchB?.rackName)
+    expect([switchA?.rackName, switchB?.rackName].sort()).toEqual(["E14", "E15"])
+    expect(racks.find((rack) => rack.name === "E15")).toEqual(expect.objectContaining({ adjacentRackIds: expect.arrayContaining(["E14"]) }))
+  })
+
+  test("does not co-locate a redundant pair when no adjacent rack candidate exists", async () => {
+    const workspace = createTempWorkspace()
+    const pluginConfig = loadPluginConfig(process.cwd())
+    const supportDirectory = join(workspace, "test", "设备参数应答表")
+    mkdirSync(supportDirectory, { recursive: true })
+    writeFileSync(join(supportDirectory, "服务器参数应答表.xlsx"), "server parameter workbook")
+
+    const templateSources = [
+      { kind: "document" as const, ref: "fixtures/cabling-template.xlsx", note: "Cable planning template" },
+      { kind: "document" as const, ref: "fixtures/rack-layout-template.xlsx", note: "Rack layout template" },
+    ]
+    const parameterSource = {
+      kind: "document" as const,
+      ref: "test/设备参数应答表/设备参数应答表-华三0202.xlsx",
+      note: "设备参数应答表-华三0202",
+    }
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: templateSources[0],
+                markdown: [
+                  "## 服务器带内带外连线",
+                  "",
+                  "| 线缆编号 | 线缆名称 | 线缆程式 | 线缆 条数 | 线缆长度 (米) | 线缆 总长度 （米） | 起始端 | Unnamed: 7 | 目的端 | Unnamed: 9 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | NaN | NaN | NaN | NaN | NaN | 机架 | 设备名称/型号 | 机架 | 设备名称/型号 |",
+                  "| 1 | 以太网电缆 | F/UTP六类屏蔽线 | 1 | 5 | 5 | J01 | 业务POD-千兆带内管理TOR-H3C S5560X-54C-EI-11 | H03 | 对端设备-1 |",
+                  "| 2 | 以太网电缆 | F/UTP六类屏蔽线 | 1 | 5 | 5 | J01 | 业务POD-千兆带内管理TOR-H3C S5560X-54C-EI-12 | H03 | 对端设备-2 |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: templateSources[1],
+                markdown: [
+                  "## Sheet1",
+                  "",
+                  "| Unnamed: 0 | H列03柜 | 机柜(H03） | Unnamed: 3 | 7kw | Unnamed: 5 | J列01柜 | 机柜(J01） | Unnamed: 8 | 7kw |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: parameterSource,
+                markdown: [
+                  "## Sheet1",
+                  "",
+                  "| 设备名称 | 设备型号 | 设备数量 | 设备尺寸（宽*深*高mm） | 设备大小(U) | 设备实配重量(KG) | 设备满配重量(KG) | 设备实配运行功耗（W） | 设备满配运行功耗（W） |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| 干兆带内/带外管理TOR | H3C S5560X-54C-EI | 2 | 440*360*44 | 1 | 7.5 | 7.5 | 55 | 116 |",
+                ].join("\n"),
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+      ],
+    })
+
+    const result = await runExtractStructuredInputFromTemplates({
+      input: {
+        requirement: {
+          id: "req-template-nonadjacent-pair-1",
+          projectName: "Template Nonadjacent Pair Example",
+          scopeType: "data-center",
+          artifactRequests: ["device-rack-layout", "device-cabling-table"],
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+        documentSources: templateSources,
+      },
+      pluginConfig,
+      runtime: createWorkerRuntimeContext(client, {
+        directory: workspace,
+        worktree: workspace,
+      }),
+      rootDirectory: workspace,
+    })
+
+    const switchA = result.draftInput.structuredInput.devices.find((device) => device.name === "业务POD-千兆带内管理TOR-H3C S5560X-54C-EI-11")
+    const switchB = result.draftInput.structuredInput.devices.find((device) => device.name === "业务POD-千兆带内管理TOR-H3C S5560X-54C-EI-12")
+
+    expect(switchA).toEqual(expect.objectContaining({ rackName: undefined, rackPosition: undefined }))
+    expect(switchB).toEqual(expect.objectContaining({ rackName: undefined, rackPosition: undefined }))
+    expect(result.warnings).toContain(
+      "No adjacent rack or adjacent-column candidate satisfied deterministic placement constraints for redundant pair 业务POD-千兆带内管理TOR-H3C S5560X-54C-EI-11 / 业务POD-千兆带内管理TOR-H3C S5560X-54C-EI-12; rack positions remain unresolved and require user confirmation.",
+    )
+  })
+
+  test("does not partially place a redundant pair when adjacent racks exist but one side has no free U space", async () => {
+    const workspace = createTempWorkspace()
+    const pluginConfig = loadPluginConfig(process.cwd())
+    const supportDirectory = join(workspace, "test", "设备参数应答表")
+    mkdirSync(supportDirectory, { recursive: true })
+    writeFileSync(join(supportDirectory, "设备参数应答表-华三0202.xlsx"), "switch parameter workbook")
+
+    const templateSources = [
+      { kind: "document" as const, ref: "fixtures/cabling-template.xlsx", note: "Cable planning template" },
+      { kind: "document" as const, ref: "fixtures/rack-layout-template.xlsx", note: "Rack layout template" },
+    ]
+    const parameterSource = {
+      kind: "document" as const,
+      ref: "test/设备参数应答表/设备参数应答表-华三0202.xlsx",
+      note: "设备参数应答表-华三0202",
+    }
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: templateSources[0],
+                markdown: [
+                  "## 服务器带内带外连线",
+                  "",
+                  "| 线缆编号 | 线缆名称 | 线缆程式 | 线缆 条数 | 线缆长度 (米) | 线缆 总长度 （米） | 起始端 | Unnamed: 7 | 目的端 | Unnamed: 9 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | NaN | NaN | NaN | NaN | NaN | 机架 | 设备名称/型号 | 机架 | 设备名称/型号 |",
+                  "| 1 | 以太网电缆 | F/UTP六类屏蔽线 | 1 | 5 | 5 | E14 | 占位交换机-H3C S5560X-54C-EI-1 | H01 | 对端设备-0 |",
+                  "| 2 | 以太网电缆 | F/UTP六类屏蔽线 | 1 | 5 | 5 | E15 | 业务POD-干兆带内/带外管理TOR-H3C S5560X-54C-EI-11 | E14 | 对端设备-1 |",
+                  "| 3 | 以太网电缆 | F/UTP六类屏蔽线 | 1 | 5 | 5 | E15 | 业务POD-干兆带内/带外管理TOR-H3C S5560X-54C-EI-12 | E14 | 对端设备-2 |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: templateSources[1],
+                markdown: [
+                  "## Sheet1",
+                  "",
+                  "| Unnamed: 0 | E列14柜 | 机柜(E14） 1U | Unnamed: 3 | 7kw | Unnamed: 5 | E列15柜 | 机柜(E15） 1U | Unnamed: 8 | 7kw |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: parameterSource,
+                markdown: [
+                  "## Sheet1",
+                  "",
+                  "| 设备名称 | 设备型号 | 设备数量 | 设备尺寸（宽*深*高mm） | 设备大小(U) | 设备实配重量(KG) | 设备满配重量(KG) | 设备实配运行功耗（W） | 设备满配运行功耗（W） |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| 干兆带内/带外管理TOR | H3C S5560X-54C-EI | 3 | 440*360*44 | 1 | 7.5 | 7.5 | 55 | 116 |",
+                  "| 占位交换机 | H3C S5560X-54C-EI | 1 | 440*360*44 | 1 | 7.5 | 7.5 | 1000 | 1160 |",
+                ].join("\n"),
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+      ],
+    })
+
+    const result = await runExtractStructuredInputFromTemplates({
+      input: {
+        requirement: {
+          id: "req-template-adjacent-pair-no-space-1",
+          projectName: "Template Adjacent Pair No Space Example",
+          scopeType: "data-center",
+          artifactRequests: ["device-rack-layout", "device-cabling-table"],
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+        documentSources: [...templateSources, parameterSource],
+      },
+      pluginConfig,
+      runtime: createWorkerRuntimeContext(client, {
+        directory: workspace,
+        worktree: workspace,
+      }),
+      rootDirectory: workspace,
+    })
+
+    const switchA = result.draftInput.structuredInput.devices.find((device) => device.name === "业务POD-干兆带内/带外管理TOR-H3C S5560X-54C-EI-11")
+    const switchB = result.draftInput.structuredInput.devices.find((device) => device.name === "业务POD-干兆带内/带外管理TOR-H3C S5560X-54C-EI-12")
+
+    expect(switchA).toEqual(expect.objectContaining({ rackName: undefined, rackPosition: undefined }))
+    expect(switchB).toEqual(expect.objectContaining({ rackName: undefined, rackPosition: undefined }))
+    expect(result.warnings).toContain(
+      "No adjacent rack or adjacent-column candidate satisfied deterministic placement constraints for redundant pair 业务POD-干兆带内/带外管理TOR-H3C S5560X-54C-EI-11 / 业务POD-干兆带内/带外管理TOR-H3C S5560X-54C-EI-12; rack positions remain unresolved and require user confirmation.",
+    )
+  })
+
+  test("places a redundant pair into adjacent racks when only threshold-violating adjacent options exist", async () => {
+    const workspace = createTempWorkspace()
+    const pluginConfig = loadPluginConfig(process.cwd())
+    const supportDirectory = join(workspace, "test", "设备参数应答表")
+    mkdirSync(supportDirectory, { recursive: true })
+    writeFileSync(join(supportDirectory, "设备参数应答表-华三0202.xlsx"), "switch parameter workbook")
+
+    const templateSources = [
+      { kind: "document" as const, ref: "fixtures/cabling-template.xlsx", note: "Cable planning template" },
+      { kind: "document" as const, ref: "fixtures/rack-layout-template.xlsx", note: "Rack layout template" },
+    ]
+    const parameterSource = {
+      kind: "document" as const,
+      ref: "test/设备参数应答表/设备参数应答表-华三0202.xlsx",
+      note: "设备参数应答表-华三0202",
+    }
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: templateSources[0],
+                markdown: [
+                  "## 交换机互联表",
+                  "",
+                  "| 线缆编号 | 线缆名称 | 线缆程式 | 线缆 条数 | 线缆长度 (米) | 线缆 总长度 （米） | 起始端 | Unnamed: 7 | 目的端 | Unnamed: 9 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | NaN | NaN | NaN | NaN | NaN | 机架 | 设备名称/型号 | 机架 | 设备名称/型号 |",
+                  "| 1 | 以太网电缆 | F/UTP六类屏蔽线 | 1 | 5 | 5 | J05 | 互联层-南北向汇聚交换机-H3C S12516G-AF-1 | I05 | 互联层-南北向汇聚交换机-H3C S12516G-AF-2 |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: templateSources[1],
+                markdown: [
+                  "## Sheet1",
+                  "",
+                  "| Unnamed: 0 | I列05柜 | 机柜(I05） 48U | Unnamed: 3 | 7kw | Unnamed: 5 | J列05柜 | 机柜(J05） 48U | Unnamed: 8 | 7kw |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: parameterSource,
+                markdown: [
+                  "## 设备参数表",
+                  "",
+                  "| 设备名称 | 设备型号 | 设备数量 | 设备尺寸（宽*深*高mm） | 设备大小(U) | 设备实配重量(KG) | 设备满配重量(KG) | 设备实配运行功耗（W） | 设备满配运行功耗（W） |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| 南北向汇聚交换机 | H3C S12516G-AF | 2 | 440*857*931 | 21 | 233.87 | 360 | 6100 | 10252 |",
+                ].join("\n"),
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+      ],
+    })
+
+    const result = await runExtractStructuredInputFromTemplates({
+      input: {
+        requirement: {
+          id: "req-template-adjacent-over-threshold-1",
+          projectName: "Template Adjacent Over Threshold Example",
+          scopeType: "data-center",
+          artifactRequests: ["device-rack-layout", "device-cabling-table"],
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+        documentSources: templateSources,
+      },
+      pluginConfig,
+      runtime: createWorkerRuntimeContext(client, {
+        directory: workspace,
+        worktree: workspace,
+      }),
+      rootDirectory: workspace,
+    })
+
+    const draft = await runDraftTopologyModel({
+      input: result.draftInput,
+      allowDocumentAssist: true,
+    })
+    const switchA = result.draftInput.structuredInput.devices.find((device) => device.name === "互联层-南北向汇聚交换机-H3C S12516G-AF-1")
+    const switchB = result.draftInput.structuredInput.devices.find((device) => device.name === "互联层-南北向汇聚交换机-H3C S12516G-AF-2")
+
+    expect(switchA).toEqual(expect.objectContaining({ rackPosition: expect.any(Number), rackUnitHeight: 21 }))
+    expect(switchB).toEqual(expect.objectContaining({ rackPosition: expect.any(Number), rackUnitHeight: 21 }))
+    expect([switchA?.rackName, switchB?.rackName].sort()).toEqual(["I05", "J05"])
+    expect(draft.validationSummary.issues.map((issue) => issue.code)).toContain("rack_power_threshold_exceeded")
+  })
+
+  test("prefers a feasible rack with an empty adjacent rack for very high power devices", async () => {
+    const workspace = createTempWorkspace()
+    const pluginConfig = loadPluginConfig(process.cwd())
+    const supportDirectory = join(workspace, "test", "设备参数应答表")
+    mkdirSync(supportDirectory, { recursive: true })
+    writeFileSync(join(supportDirectory, "设备参数应答表-华三0202.xlsx"), "switch parameter workbook")
+
+    const templateSources = [
+      { kind: "document" as const, ref: "fixtures/cabling-template.xlsx", note: "Cable planning template" },
+      { kind: "document" as const, ref: "fixtures/rack-layout-template.xlsx", note: "Rack layout template" },
+    ]
+    const parameterSource = {
+      kind: "document" as const,
+      ref: "test/设备参数应答表/设备参数应答表-华三0202.xlsx",
+      note: "设备参数应答表-华三0202",
+    }
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: templateSources[0],
+                markdown: [
+                  "## 交换机互联表",
+                  "",
+                  "| 线缆编号 | 线缆名称 | 线缆程式 | 线缆 条数 | 线缆长度 (米) | 线缆 总长度 （米） | 起始端 | Unnamed: 7 | 目的端 | Unnamed: 9 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | NaN | NaN | NaN | NaN | NaN | 机架 | 设备名称/型号 | 机架 | 设备名称/型号 |",
+                  "| 1 | 以太网电缆 | F/UTP六类屏蔽线 | 1 | 5 | 5 | I05 | 占位设备-H3C S5560X-54C-EI-1 | H01 | 对端设备-0 |",
+                  "| 2 | 以太网电缆 | F/UTP六类屏蔽线 | 1 | 5 | 5 | J05 | 互联层-南北向汇聚交换机-H3C S12516G-AF-1 | H01 | 对端设备-1 |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: templateSources[1],
+                markdown: [
+                  "## Sheet1",
+                  "",
+                  "| Unnamed: 0 | G列01柜 | 机柜(G01） 48U | Unnamed: 3 | 10kw | Unnamed: 5 | G列02柜 | 机柜(G02） 48U | Unnamed: 8 | 10kw | Unnamed: 10 | I列05柜 | 机柜(I05） 48U | Unnamed: 13 | 10kw | Unnamed: 15 | J列05柜 | 机柜(J05） 48U | Unnamed: 18 | 10kw |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | NaN | NaN | NaN | NaN | NaN | NaN | NaN | NaN | NaN | NaN | 55 | 占位设备-H3C S5560X-54C-EI-1 | 42 | NaN | NaN | NaN | NaN | NaN | NaN |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: parameterSource,
+                markdown: [
+                  "## 设备参数表",
+                  "",
+                  "| 设备名称 | 设备型号 | 设备数量 | 设备尺寸（宽*深*高mm） | 设备大小(U) | 设备实配重量(KG) | 设备满配重量(KG) | 设备实配运行功耗（W） | 设备满配运行功耗（W） |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| 占位设备 | H3C S5560X-54C-EI | 1 | 440*360*44 | 1 | 7.5 | 7.5 | 7000 | 1160 |",
+                  "| 南北向汇聚交换机 | H3C S12516G-AF | 1 | 440*857*931 | 21 | 233.87 | 360 | 6100 | 10252 |",
+                ].join("\n"),
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+      ],
+    })
+
+    const result = await runExtractStructuredInputFromTemplates({
+      input: {
+        requirement: {
+          id: "req-template-thermal-preference-1",
+          projectName: "Template Thermal Preference Example",
+          scopeType: "data-center",
+          artifactRequests: ["device-rack-layout", "device-cabling-table"],
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+        documentSources: [...templateSources, parameterSource],
+      },
+      pluginConfig,
+      runtime: createWorkerRuntimeContext(client, {
+        directory: workspace,
+        worktree: workspace,
+      }),
+      rootDirectory: workspace,
+    })
+
+    const switchA = result.draftInput.structuredInput.devices.find((device) => device.name === "互联层-南北向汇聚交换机-H3C S12516G-AF-1")
+    expect(switchA).toEqual(expect.objectContaining({ rackPosition: expect.any(Number), rackUnitHeight: 21 }))
+    expect(switchA?.rackName).not.toBe("J05")
+  })
+
+  test("treats multi-letter rack rows as adjacent columns when generating adjacency metadata", async () => {
+    const workspace = createTempWorkspace()
+    const pluginConfig = loadPluginConfig(process.cwd())
+    const templateSources = [
+      { kind: "document" as const, ref: "fixtures/rack-layout-template.xlsx", note: "Rack layout template" },
+    ]
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: templateSources[0],
+                markdown: [
+                  "## Sheet1",
+                  "",
+                  "| Unnamed: 0 | AA列01柜 | 机柜(AA01） 48U | Unnamed: 3 | 7kw | Unnamed: 5 | AB列01柜 | 机柜(AB01） 48U | Unnamed: 8 | 7kw |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                ].join("\n"),
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+      ],
+    })
+
+    const result = await runExtractStructuredInputFromTemplates({
+      input: {
+        requirement: {
+          id: "req-template-multiletter-rack-adjacency-1",
+          projectName: "Template Multi-Letter Rack Adjacency Example",
+          scopeType: "data-center",
+          artifactRequests: ["device-rack-layout"],
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+        documentSources: templateSources,
+      },
+      pluginConfig,
+      runtime: createWorkerRuntimeContext(client, {
+        directory: workspace,
+        worktree: workspace,
+      }),
+      rootDirectory: workspace,
+    })
+
+    expect(result.draftInput.structuredInput.racks.find((rack) => rack.name === "AA01")).toEqual(
+      expect.objectContaining({ adjacentColumnRackIds: expect.arrayContaining(["AB01"]) }),
+    )
+    expect(result.draftInput.structuredInput.racks.find((rack) => rack.name === "AB01")).toEqual(
+      expect.objectContaining({ adjacentColumnRackIds: expect.arrayContaining(["AA01"]) }),
+    )
+  })
+
+  test("places higher-power devices first so a feasible under-threshold rack distribution is chosen", async () => {
+    const workspace = createTempWorkspace()
+    const pluginConfig = loadPluginConfig(process.cwd())
+    const templateSources = [
+      { kind: "document" as const, ref: "fixtures/rack-layout-template.xlsx", note: "Rack layout template" },
+    ]
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: templateSources[0],
+                markdown: [
+                  "## Sheet1",
+                  "",
+                  "| Unnamed: 0 | A列01柜 | 机柜(A01） 48U | Unnamed: 3 | 7kw | Unnamed: 5 | A列02柜 | 机柜(A02） 48U | Unnamed: 8 | 7kw |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | 5000 | 大功率设备-1 | 10 | NaN | NaN | NaN | NaN | NaN | NaN |",
+                  "| NaN | 1000 | 小功率设备-1 | 20 | NaN | NaN | NaN | NaN | NaN | NaN |",
+                  "| NaN | 1000 | 小功率设备-2 | 30 | NaN | NaN | NaN | NaN | NaN | NaN |",
+                ].join("\n"),
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+      ],
+    })
+
+    const result = await runExtractStructuredInputFromTemplates({
+      input: {
+        requirement: {
+          id: "req-template-power-order-1",
+          projectName: "Template Power Order Example",
+          scopeType: "data-center",
+          artifactRequests: ["device-rack-layout"],
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+        documentSources: templateSources,
+      },
+      pluginConfig,
+      runtime: createWorkerRuntimeContext(client, {
+        directory: workspace,
+        worktree: workspace,
+      }),
+      rootDirectory: workspace,
+    })
+
+    const draft = await runDraftTopologyModel({
+      input: result.draftInput,
+      allowDocumentAssist: true,
+    })
+    const devices = result.draftInput.structuredInput.devices
+    const powerByRack = devices.reduce<Record<string, number>>((acc, device) => {
+      if (!device.rackName || typeof device.powerWatts !== "number") {
+        return acc
+      }
+      acc[device.rackName] = (acc[device.rackName] ?? 0) + device.powerWatts
+      return acc
+    }, {})
+
+    expect(powerByRack).toEqual({
+      A01: 5000,
+      A02: 2000,
+    })
+    expect(draft.validationSummary.issues.map((issue) => issue.code)).not.toContain("rack_power_threshold_exceeded")
   })
 
   test("preserves an explicit non-standard rack U value instead of defaulting to 48U", async () => {
@@ -740,7 +1994,7 @@ describe("runExtractStructuredInputFromTemplates", () => {
     )
   })
 
-  test("warns when a device cannot be matched to any inventory workbook row", async () => {
+  test("fills power by parameter-response model match even when inventory has no matching row", async () => {
     const workspace = createTempWorkspace()
     const pluginConfig = loadPluginConfig(process.cwd())
     const templateSources = [
@@ -825,12 +2079,17 @@ describe("runExtractStructuredInputFromTemplates", () => {
       rootDirectory: workspace,
     })
 
-    expect(result.warnings).toContain(
+    expect(result.draftInput.structuredInput.devices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "未登记服务器-CS5280H3-1", powerWatts: 892 }),
+      ]),
+    )
+    expect(result.warnings).not.toContain(
       "No inventory workbook row matched device 未登记服务器-CS5280H3-1, so device power remains unresolved until the project provides a matching inventory entry.",
     )
   })
 
-  test("warns when inventory matches but no parameter-response row resolves device power", async () => {
+  test("fills power by direct parameter-response model match when inventory title differs", async () => {
     const workspace = createTempWorkspace()
     const pluginConfig = loadPluginConfig(process.cwd())
     const templateSources = [
@@ -915,7 +2174,12 @@ describe("runExtractStructuredInputFromTemplates", () => {
       rootDirectory: workspace,
     })
 
-    expect(result.warnings).toContain(
+    expect(result.draftInput.structuredInput.devices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "业务POD-B1H服务器-CS5280H3-1", powerWatts: 892 }),
+      ]),
+    )
+    expect(result.warnings).not.toContain(
       "Inventory matched device 业务POD-B1H服务器-CS5280H3-1, but no parameter-response workbook row provided deterministic power for it.",
     )
   })
@@ -1219,5 +2483,104 @@ describe("runExtractStructuredInputFromTemplates", () => {
         }),
       ]),
     )
+  })
+
+  test("replays the local real-template converted markdown bundle when it is available", async () => {
+    const rootDirectory = process.cwd()
+    const convertedDocumentManifest = loadLocalConvertedMarkdownManifest(rootDirectory)
+    if (!convertedDocumentManifest) {
+      return
+    }
+    const primaryDocumentManifest = convertedDocumentManifest.filter(
+      (document) => !document.ref.includes("设备参数应答表/"),
+    )
+
+    const pluginConfig = loadPluginConfig(rootDirectory)
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: convertedDocumentManifest,
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+      ],
+    })
+
+    const requirement = {
+      id: "req-real-template-local-bundle-1",
+      projectName: "Local Real Template Bundle",
+      scopeType: "data-center" as const,
+      artifactRequests: [
+        "device-rack-layout",
+        "device-cabling-table",
+        "device-port-plan",
+        "device-port-connection-table",
+      ],
+      sourceRefs: [],
+      statusConfidence: "confirmed" as const,
+    }
+
+    const result = await runExtractStructuredInputFromTemplates({
+      input: {
+        requirement,
+        documentSources: primaryDocumentManifest.map((document) => ({
+          kind: document.kind,
+          ref: document.ref,
+          note: document.note,
+        })),
+      },
+      pluginConfig,
+      runtime: createWorkerRuntimeContext(client, {
+        directory: rootDirectory,
+        worktree: rootDirectory,
+      }),
+      rootDirectory,
+    })
+
+    expect(result.summary).toEqual({
+      parsedSourceCount: 3,
+      rackCount: 26,
+      deviceCount: 52,
+      linkCount: 49,
+    })
+    expect(result.warnings).toContain(
+      "Rack layout import currently defaults device rackUnitHeight to 1U when workbook markdown does not preserve merged-cell height.",
+    )
+    expect(result.warnings).toContain(
+      "Discovered 4 parameter-response support workbook(s) under test/设备参数应答表 for deterministic power hydration.",
+    )
+    expect(result.warnings).not.toContain(
+      "No project-bound inventory workbook was recognized, so device power could not be resolved from required user input.",
+    )
+    expect(result.warnings).not.toContain(
+      "No device parameter-response workbook was recognized, so device power could not be resolved from required user input.",
+    )
+    expect(result.draftInput.structuredInput.devices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "业务POD-B1H服务器-CS5280H3-1", powerWatts: 892 }),
+        expect.objectContaining({ name: "业务POD-SDN千兆带内管理TOR-H3C S5560X-54C-EI-1", powerWatts: 55 }),
+        expect.objectContaining({ name: "业务POD-C5服务器-NF8260-M7-A0-R0-00-12", powerWatts: 1339 }),
+      ]),
+    )
+
+    const draft = await runDraftTopologyModel({
+      input: result.draftInput,
+      allowDocumentAssist: true,
+    })
+
+    expect(draft.validationSummary.issues.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining([
+        "physical_fact_not_confirmed",
+        "plane_link_port_type_mismatch",
+        "rack_power_threshold_exceeded",
+      ]),
+    )
+    expect(draft.validationSummary.issues.map((issue) => issue.code)).not.toContain("device_power_missing")
+    expect(draft.validationSummary.issues.map((issue) => issue.code)).not.toContain("device_rack_position_required")
+    expect(draft.validationSummary.issues.map((issue) => issue.code)).not.toContain("device_rack_unit_height_required")
   })
 })

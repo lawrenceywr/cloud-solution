@@ -1250,6 +1250,30 @@ describe("validateCloudSolutionModel", () => {
     expect(hasBlockingIssues(issues)).toBe(true)
   })
 
+  test("does not block high-reliability rack layout when a cable-manager has no powerWatts", () => {
+    const baseInput = createScn08HighReliabilityRackLayoutFixture()
+    const issues = validateCloudSolutionModel({
+      ...baseInput,
+      devices: [
+        ...baseInput.devices,
+        {
+          id: "device-cable-manager-a",
+          name: "48口理线器",
+          role: "cable-manager",
+          rackId: "rack-a",
+          rackPosition: 20,
+          rackUnitHeight: 1,
+          powerWatts: undefined,
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+      ],
+    })
+
+    expect(issues.map((issue) => issue.code)).not.toContain("device_power_missing")
+    expect(hasBlockingIssues(issues)).toBe(false)
+  })
+
   test("blocks dual-homed peers that do not resolve to one complete HA pair", () => {
     const baseInput = createScn08HighReliabilityRackLayoutFixture()
     const issues = validateCloudSolutionModel({

@@ -8,6 +8,7 @@ import { StructuredSolutionInputSchema } from "../../normalizers/normalize-struc
 import type { RuntimeContext } from "../../plugin/types"
 import { runExtractDocumentCandidateFacts } from "../../features"
 import { createExtractDocumentCandidateFactsArgs } from "../intake-tool-args"
+import { createInternalWorkerRuntimeContext } from "../internal-worker-runtime"
 
 const DocumentSourceSchema = SourceReferenceSchema.extend({
   kind: z.enum(["document", "diagram", "image"]),
@@ -37,14 +38,10 @@ export function createExtractDocumentCandidateFactsTools(args: {
           "extract_document_candidate_facts requires a plugin runtime client to spawn the internal extraction worker",
         )
       }
-      const runtime: WorkerRuntimeContext = {
-        client: context.client,
-        parentSessionID: toolContext.sessionID,
-        agent: toolContext.agent,
-        directory: context.directory,
-        worktree: context.worktree ?? context.directory,
-        abort: toolContext.abort,
-      }
+      const runtime: WorkerRuntimeContext = createInternalWorkerRuntimeContext({
+        context,
+        toolContext,
+      })
 
       const result = await runExtractDocumentCandidateFacts({
         input: ExtractDocumentCandidateFactsInputSchema.parse(inputArgs),
