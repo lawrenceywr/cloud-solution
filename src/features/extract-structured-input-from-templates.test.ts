@@ -343,6 +343,840 @@ describe("runExtractStructuredInputFromTemplates", () => {
     )
   })
 
+  test("parses switch port-plan tables with a leading placeholder column", async () => {
+    const workspace = createTempWorkspace()
+    const pluginConfig = loadPluginConfig(process.cwd())
+    const templateSources = [
+      { kind: "document" as const, ref: "fixtures/cabling-template.xlsx", note: "Cable planning template" },
+      { kind: "document" as const, ref: "fixtures/port-plan.xlsx", note: "Port plan workbook" },
+    ]
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: templateSources[0],
+                markdown: [
+                  "## 服务器业务存储连线",
+                  "",
+                  "| 线缆编号 | 线缆名称 | 线缆程式 | 线缆 条数 | 线缆长度 (米) | 线缆 总长度 （米） | 起始端 | Unnamed: 7 | 目的端 | Unnamed: 9 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | NaN | NaN | NaN | NaN | NaN | 机架 | 设备名称/型号 | 机架 | 设备名称/型号 |",
+                  "| 1 | 10GE双头光跳纤 | 多模光纤双芯 LC-LC | 2 | 15 | 30 | E15 | 业务POD-B1H服务器-CS5280H3-1 | D13 | 业务POD-SDN硬件接入交换机(10GE)-H3C S6805-54HF-1 |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: templateSources[1],
+                markdown: [
+                  "## 业务接入交换机",
+                  "",
+                  "| Unnamed: 0 | 业务POD SDN硬件接入交换机(10GE)奇数号  H3C S6805-54HF | Unnamed: 2 | Unnamed: 3 | Unnamed: 4 | Unnamed: 5 | Unnamed: 6 | Unnamed: 7 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | 板卡编号 | 板卡类型 | 端口编号 | 端口类型 | 接至 | 电路开通方向 | 主要用途 |",
+                  "| NaN | 1 | 48个10GE SFP+接口 | 1-24 | 10GE(850nm,300m,LC) | 服务器 | 服务器 | 服务器、存储业务前端接入，每对接入20台服务器，柜顶部署 |",
+                ].join("\n"),
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+      ],
+    })
+
+    const result = await runExtractStructuredInputFromTemplates({
+      input: {
+        requirement: {
+          id: "req-template-switch-port-plan-1",
+          projectName: "Template Switch Port Plan Example",
+          scopeType: "data-center",
+          artifactRequests: ["device-cabling-table"],
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+        documentSources: templateSources,
+      },
+      pluginConfig,
+      runtime: createWorkerRuntimeContext(client, {
+        directory: workspace,
+        worktree: workspace,
+      }),
+      rootDirectory: workspace,
+    })
+
+    expect(result.warnings).not.toContain(
+      "No workbook-derived port plan profile matched device 业务POD-SDN硬件接入交换机(10GE)-H3C S6805-54HF-1. Falling back to synthesized port naming for data.",
+    )
+    expect(result.draftInput.structuredInput.devices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "业务POD-SDN硬件接入交换机(10GE)-H3C S6805-54HF-1",
+          ports: expect.arrayContaining([
+            expect.objectContaining({ name: "1/1" }),
+          ]),
+        }),
+      ]),
+    )
+    expect(result.draftInput.structuredInput.links).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          endpointB: {
+            deviceName: "业务POD-SDN硬件接入交换机(10GE)-H3C S6805-54HF-1",
+            portName: "1/1",
+          },
+        }),
+      ]),
+    )
+  })
+
+  test("prefers exact switch model matches over relaxed family fallback in port-plan selection", async () => {
+    const workspace = createTempWorkspace()
+    const pluginConfig = loadPluginConfig(process.cwd())
+    const templateSources = [
+      { kind: "document" as const, ref: "fixtures/cabling-template.xlsx", note: "Cable planning template" },
+      { kind: "document" as const, ref: "fixtures/port-plan.xlsx", note: "Port plan workbook" },
+    ]
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: templateSources[0],
+                markdown: [
+                  "## 交换机互联表",
+                  "",
+                  "| 线缆编号 | 线缆名称 | 线缆程式 | 线缆 条数 | 线缆长度 (米) | 线缆 总长度 （米） | 起始端 | Unnamed: 7 | 目的端 | Unnamed: 9 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | NaN | NaN | NaN | NaN | NaN | 机架 | 设备名称/型号 | 机架 | 设备名称/型号 |",
+                  "| 1 | 25GE双头光跳纤 | 多模光纤双芯 LC-LC | 2 | 10 | 20 | D07 | 业务POD-SDN硬件接入交换机(25GE)-H3C S6850-56HF-1 | D06 | 业务POD-SDN硬件接入交换机(25GE)-H3C S6850-56HF-2 |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: templateSources[1],
+                markdown: [
+                  "## 业务接入交换机",
+                  "",
+                  "| Unnamed: 0 | 业务POD SDN硬件接入交换机(10GE)奇数号  H3C S6805-54HF | Unnamed: 2 | Unnamed: 3 | Unnamed: 4 | Unnamed: 5 | Unnamed: 6 | Unnamed: 7 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | 板卡编号 | 板卡类型 | 端口编号 | 端口类型 | 接至 | 电路开通方向 | 主要用途 |",
+                  "| NaN | 1 | 48个10GE SFP+接口 | 47 | 10GE(850nm,300m,LC) | SDN硬件接入交换机(10GE)2 | S6805-54HF | keepalive |",
+                  "| NaN | 业务POD SDN硬件接入交换机(10GE)偶数号  H3C S6805-54HF | NaN | NaN | NaN | NaN | NaN | NaN |",
+                  "| NaN | 板卡编号 | 板卡类型 | 端口编号 | 端口类型 | 接至 | 电路开通方向 | 主要用途 |",
+                  "| NaN | 1 | 48个10GE SFP+接口 | 47 | 10GE(850nm,300m,LC) | SDN硬件接入交换机(10GE)1 | S6805-54HF | keepalive |",
+                  "| NaN | 业务POD SDN硬件接入交换机(25GE)奇数号  H3C S6850-56HF | NaN | NaN | NaN | NaN | NaN | NaN |",
+                  "| NaN | 板卡编号 | 板卡类型 | 端口编号 | 端口类型 | 接至 | 电路开通方向 | 主要用途 |",
+                  "| NaN | 1 | 48个25GE SFP28接口 | 24 | 25GE(850nm,100m,SR,MM,LC) | SDN硬件接入交换机(25GE)2 | S6850-56HF-H3 | keepalive |",
+                  "| NaN | 业务POD SDN硬件接入交换机(25GE)偶数号  H3C S6850-56HF | NaN | NaN | NaN | NaN | NaN | NaN |",
+                  "| NaN | 板卡编号 | 板卡类型 | 端口编号 | 端口类型 | 接至 | 电路开通方向 | 主要用途 |",
+                  "| NaN | 1 | 48个25GE SFP28接口 | 24 | 25GE(850nm,100m,SR,MM,LC) | SDN硬件接入交换机(25GE)1 | S6850-56HF-H3 | keepalive |",
+                ].join("\n"),
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+      ],
+    })
+
+    const result = await runExtractStructuredInputFromTemplates({
+      input: {
+        requirement: {
+          id: "req-template-switch-model-precedence-1",
+          projectName: "Template Switch Model Precedence Example",
+          scopeType: "data-center",
+          artifactRequests: ["device-cabling-table"],
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+        documentSources: templateSources,
+      },
+      pluginConfig,
+      runtime: createWorkerRuntimeContext(client, {
+        directory: workspace,
+        worktree: workspace,
+      }),
+      rootDirectory: workspace,
+    })
+
+    expect(result.warnings).not.toContain(
+      "Multiple workbook-derived port plan profiles matched device 业务POD-SDN硬件接入交换机(25GE)-H3C S6850-56HF-1; selected '业务POD SDN硬件接入交换机(10GE)奇数号 H3C S6805-54HF' using longest-key precedence.",
+    )
+    expect(result.draftInput.structuredInput.links).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          endpointA: {
+            deviceName: "业务POD-SDN硬件接入交换机(25GE)-H3C S6850-56HF-1",
+            portName: "1/24",
+          },
+          endpointB: {
+            deviceName: "业务POD-SDN硬件接入交换机(25GE)-H3C S6850-56HF-2",
+            portName: "1/24",
+          },
+          linkType: "peer-link",
+        }),
+      ]),
+    )
+  })
+
+  test("prefers exact role matches for same-model aggregation switches", async () => {
+    const workspace = createTempWorkspace()
+    const pluginConfig = loadPluginConfig(process.cwd())
+    const templateSources = [
+      { kind: "document" as const, ref: "fixtures/cabling-template.xlsx", note: "Cable planning template" },
+      { kind: "document" as const, ref: "fixtures/port-plan.xlsx", note: "Port plan workbook" },
+    ]
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: templateSources[0],
+                markdown: [
+                  "## 交换机上联表",
+                  "",
+                  "| 线缆编号 | 线缆名称 | 线缆程式 | 线缆 条数 | 线缆长度 (米) | 线缆 总长度 （米） | 起始端 | Unnamed: 7 | 目的端 | Unnamed: 9 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | NaN | NaN | NaN | NaN | NaN | 机架 | 设备名称/型号 | 机架 | 设备名称/型号 |",
+                  "| 1 | 100GE双头光跳纤 | 单模光纤双芯 LC-LC | 1 | 15 | 15 | J11 | 核心区-管理域防火墙-H3c SecPath M9000-CN04-1 | J05 | 互联层-南北向汇聚交换机-H3C S12516G-AF-1 |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: templateSources[1],
+                markdown: [
+                  "## 汇聚交换机",
+                  "",
+                  "| Unnamed: 0 | 东西向汇聚交换机1 S12516G-AF | Unnamed: 2 | Unnamed: 3 | Unnamed: 4 | Unnamed: 5 | Unnamed: 6 | Unnamed: 7 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | 板卡编号 | 板卡类型 | 端口编号 | 端口类型 | 接至 | 电路开通方向 | 主要用途 |",
+                  "| NaN | 2 | 36端口100G以太网光接口模块(QSFP28)(TE) | 9 | 100GE LR4 | 核心交换机1 | S12516G-AF | 内部互联 |",
+                  "| NaN | 南北向汇聚交换机1 S12516G-AF | NaN | NaN | NaN | NaN | NaN | NaN |",
+                  "| NaN | 板卡编号 | 板卡类型 | 端口编号 | 端口类型 | 接至 | 电路开通方向 | 主要用途 |",
+                  "| NaN | 2 | 36端口100G以太网光接口模块(QSFP28)(TE) | 11 | 100GE LR4 | 核心交换机1 | S12516G-AF | 内部互联 |",
+                ].join("\n"),
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+      ],
+    })
+
+    const result = await runExtractStructuredInputFromTemplates({
+      input: {
+        requirement: {
+          id: "req-template-switch-role-precedence-1",
+          projectName: "Template Switch Role Precedence Example",
+          scopeType: "data-center",
+          artifactRequests: ["device-cabling-table"],
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+        documentSources: templateSources,
+      },
+      pluginConfig,
+      runtime: createWorkerRuntimeContext(client, {
+        directory: workspace,
+        worktree: workspace,
+      }),
+      rootDirectory: workspace,
+    })
+
+    expect(result.warnings).not.toContain(
+      "Multiple workbook-derived port plan profiles matched device 互联层-南北向汇聚交换机-H3C S12516G-AF-1; selected '东西向汇聚交换机1 S12516G-AF' using longest-key precedence.",
+    )
+    expect(result.draftInput.structuredInput.links).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          endpointB: {
+            deviceName: "互联层-南北向汇聚交换机-H3C S12516G-AF-1",
+            portName: "2/11",
+          },
+        }),
+      ]),
+    )
+  })
+
+  test("prefers exact device instance matches for numbered switch profiles", async () => {
+    const workspace = createTempWorkspace()
+    const pluginConfig = loadPluginConfig(process.cwd())
+    const templateSources = [
+      { kind: "document" as const, ref: "fixtures/cabling-template.xlsx", note: "Cable planning template" },
+      { kind: "document" as const, ref: "fixtures/port-plan.xlsx", note: "Port plan workbook" },
+    ]
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: templateSources[0],
+                markdown: [
+                  "## 交换机上联表",
+                  "",
+                  "| 线缆编号 | 线缆名称 | 线缆程式 | 线缆 条数 | 线缆长度 (米) | 线缆 总长度 （米） | 起始端 | Unnamed: 7 | 目的端 | Unnamed: 9 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | NaN | NaN | NaN | NaN | NaN | 机架 | 设备名称/型号 | 机架 | 设备名称/型号 |",
+                  "| 1 | 40GE双头光跳纤 | 单模光纤双芯 LC-LC | 1 | 20 | 20 | I12 | 核心区-10G 全域管理交换机-H3C S6805-54HF-1 | J08 | 管理POD-管理核心交换机-H3C S12508G-AF-1 |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: templateSources[1],
+                markdown: [
+                  "## 管理网核心交换机",
+                  "",
+                  "| Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | Unnamed: 3 | Unnamed: 4 | Unnamed: 5 | Unnamed: 6 | Unnamed: 7 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | 管理核心交换机1 S-12508G-AF | NaN | NaN | NaN | NaN | NaN | NaN |",
+                  "| NaN | 板卡编号 | 板卡类型 | 端口编号 | 端口类型 | 接至 | 电路开通方向 | 主要用途 |",
+                  "| NaN | 4 | 36端口40G QSFP+光接口板 | 1 | QSFP+ 40G | 管理网汇聚交换机1 | S12508G-AF | 内部互联 |",
+                  "| NaN | 管理核心交换机2 S-12508G-AF | NaN | NaN | NaN | NaN | NaN | NaN |",
+                  "| NaN | 板卡编号 | 板卡类型 | 端口编号 | 端口类型 | 接至 | 电路开通方向 | 主要用途 |",
+                  "| NaN | 4 | 36端口40G QSFP+光接口板 | 2 | QSFP+ 40G | 管理网汇聚交换机1 | S12508G-AF | 内部互联 |",
+                ].join("\n"),
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+      ],
+    })
+
+    const result = await runExtractStructuredInputFromTemplates({
+      input: {
+        requirement: {
+          id: "req-template-switch-instance-precedence-1",
+          projectName: "Template Switch Instance Precedence Example",
+          scopeType: "data-center",
+          artifactRequests: ["device-cabling-table"],
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+        documentSources: templateSources,
+      },
+      pluginConfig,
+      runtime: createWorkerRuntimeContext(client, {
+        directory: workspace,
+        worktree: workspace,
+      }),
+      rootDirectory: workspace,
+    })
+
+    expect(result.warnings).not.toContain(
+      "Multiple workbook-derived port plan profiles matched device 管理POD-管理核心交换机-H3C S12508G-AF-1; selected '管理核心交换机1 S-12508G-AF' using longest-key precedence.",
+    )
+    expect(result.draftInput.structuredInput.links).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          endpointB: {
+            deviceName: "管理POD-管理核心交换机-H3C S12508G-AF-1",
+            portName: "4/1",
+          },
+        }),
+      ]),
+    )
+  })
+
+  test("prefers pod-specific grouped 25GE switch profiles over matching profiles from another pod", async () => {
+    const workspace = createTempWorkspace()
+    const pluginConfig = loadPluginConfig(process.cwd())
+    const templateSources = [
+      { kind: "document" as const, ref: "fixtures/cabling-template.xlsx", note: "Cable planning template" },
+      { kind: "document" as const, ref: "fixtures/port-plan.xlsx", note: "Port plan workbook" },
+    ]
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: templateSources[0],
+                markdown: [
+                  "## 交换机互联表",
+                  "",
+                  "| 线缆编号 | 线缆名称 | 线缆程式 | 线缆 条数 | 线缆长度 (米) | 线缆 总长度 （米） | 起始端 | Unnamed: 7 | 目的端 | Unnamed: 9 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | NaN | NaN | NaN | NaN | NaN | 机架 | 设备名称/型号 | 机架 | 设备名称/型号 |",
+                  "| 1 | 100GE双头光跳纤 | 多模光纤双芯 LC-LC | 1 | 10 | 10 | D07 | 业务POD-SDN硬件接入交换机(25GE)-H3C S6850-56HF-11 | J05 | 互联层-南北向汇聚交换机-H3C S12516G-AF-1 |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: templateSources[1],
+                markdown: [
+                  "## 业务接入交换机",
+                  "",
+                  "| Unnamed: 0 | 业务POD SDN硬件接入交换机(25GE)奇数号 H3C S6850-56HF-H3 | Unnamed: 2 | Unnamed: 3 | Unnamed: 4 | Unnamed: 5 | Unnamed: 6 | Unnamed: 7 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | 板卡编号 | 板卡类型 | 端口编号 | 端口类型 | 接至 | 电路开通方向 | 主要用途 |",
+                  "| NaN | 1 | 48个25GE SFP28接口 | 49 | 100GE(1310nm,10km,LR4,WDM,LC) | 核心交换机1 | S12516G-AF | 内部互联 |",
+                  "| NaN | 业务POD SDN硬件接入交换机(25GE)偶数号 H3C S6850-56HF-H3 | NaN | NaN | NaN | NaN | NaN | NaN |",
+                  "| NaN | 板卡编号 | 板卡类型 | 端口编号 | 端口类型 | 接至 | 电路开通方向 | 主要用途 |",
+                  "| NaN | 1 | 48个25GE SFP28接口 | 49 | 100GE(1310nm,10km,LR4,WDM,LC) | 核心交换机1 | S12516G-AF | 内部互联 |",
+                  "| NaN | DMZ POD SDN硬件接入交换机(25GE)奇数号 H3C S6850-56HF-H3 | NaN | NaN | NaN | NaN | NaN | NaN |",
+                  "| NaN | 板卡编号 | 板卡类型 | 端口编号 | 端口类型 | 接至 | 电路开通方向 | 主要用途 |",
+                  "| NaN | 1 | 48个25GE SFP28接口 | 53 | 100GE(1310nm,10km,LR4,WDM,LC) | 核心交换机1 | S12516G-AF | 内部互联 |",
+                  "| NaN | DMZ POD SDN硬件接入交换机(25GE)偶数号 H3C S6850-56HF-H3 | NaN | NaN | NaN | NaN | NaN | NaN |",
+                  "| NaN | 板卡编号 | 板卡类型 | 端口编号 | 端口类型 | 接至 | 电路开通方向 | 主要用途 |",
+                  "| NaN | 1 | 48个25GE SFP28接口 | 53 | 100GE(1310nm,10km,LR4,WDM,LC) | 核心交换机1 | S12516G-AF | 内部互联 |",
+                ].join("\n"),
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+      ],
+    })
+
+    const result = await runExtractStructuredInputFromTemplates({
+      input: {
+        requirement: {
+          id: "req-template-switch-scope-precedence-1",
+          projectName: "Template Switch Scope Precedence Example",
+          scopeType: "data-center",
+          artifactRequests: ["device-cabling-table"],
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+        documentSources: templateSources,
+      },
+      pluginConfig,
+      runtime: createWorkerRuntimeContext(client, {
+        directory: workspace,
+        worktree: workspace,
+      }),
+      rootDirectory: workspace,
+    })
+
+    expect(result.warnings).not.toContain(
+      "Multiple workbook-derived port plan profiles matched device 业务POD-SDN硬件接入交换机(25GE)-H3C S6850-56HF-11; selected '业务POD SDN硬件接入交换机(25GE)奇数号 H3C S6850-56HF-H3' using longest-key precedence.",
+    )
+    expect(result.draftInput.structuredInput.links).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          endpointA: {
+            deviceName: "业务POD-SDN硬件接入交换机(25GE)-H3C S6850-56HF-11",
+            portName: "1/49",
+          },
+          endpointB: {
+            deviceName: "互联层-南北向汇聚交换机-H3C S12516G-AF-1",
+            portName: expect.any(String),
+          },
+          linkType: "inter-switch",
+        }),
+      ]),
+    )
+  })
+
+  test("prefers role-specific parameter-response power profiles for same-model aggregation switches", async () => {
+    const workspace = createTempWorkspace()
+    const pluginConfig = loadPluginConfig(process.cwd())
+    const templateSources = [
+      { kind: "document" as const, ref: "fixtures/cabling-template.xlsx", note: "Cable planning template" },
+      { kind: "document" as const, ref: "fixtures/switch-parameters.xlsx", note: "设备参数应答表" },
+    ]
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: templateSources[0],
+                markdown: [
+                  "## 交换机上联表",
+                  "",
+                  "| 线缆编号 | 线缆名称 | 线缆程式 | 线缆 条数 | 线缆长度 (米) | 线缆 总长度 （米） | 起始端 | Unnamed: 7 | 目的端 | Unnamed: 9 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | NaN | NaN | NaN | NaN | NaN | 机架 | 设备名称/型号 | 机架 | 设备名称/型号 |",
+                  "| 1 | 100GE双头光跳纤 | 单模光纤双芯 LC-LC | 1 | 15 | 15 | J11 | 核心区-管理域防火墙-H3c SecPath M9000-CN04-1 | J05 | 互联层-南北向汇聚交换机-H3C S12516G-AF-1 |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: templateSources[1],
+                markdown: [
+                  "## 设备参数表",
+                  "",
+                  "| 设备名称 | 设备型号 | 设备数量 | 设备尺寸（宽*深*高mm） | 设备大小(U) | 设备实配重量(KG) | 设备满配重量(KG) | 设备实配运行功耗（W） | 设备满配运行功耗（W） |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| 南北向汇聚交换机 | H3C S12516G-AF | 2 | 440*857*931 | 21 | 233.87 | 360 | 6100 | 10252 |",
+                  "| 东西向互联交换机 | H3C S12516G-AF | 2 | 440*857*931 | 21 | 218.53 | 360 | 5842 | 9894 |",
+                ].join("\n"),
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+      ],
+    })
+
+    const result = await runExtractStructuredInputFromTemplates({
+      input: {
+        requirement: {
+          id: "req-template-power-role-precedence-1",
+          projectName: "Template Power Role Precedence Example",
+          scopeType: "data-center",
+          artifactRequests: ["device-cabling-table"],
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+        documentSources: templateSources,
+      },
+      pluginConfig,
+      runtime: createWorkerRuntimeContext(client, {
+        directory: workspace,
+        worktree: workspace,
+      }),
+      rootDirectory: workspace,
+    })
+
+    expect(result.warnings).not.toContain(
+      "Multiple direct parameter-response power profiles matched device 互联层-南北向汇聚交换机-H3C S12516G-AF-1; selected '南北向汇聚交换机' using longest-key precedence.",
+    )
+    expect(result.draftInput.structuredInput.devices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "互联层-南北向汇聚交换机-H3C S12516G-AF-1",
+          powerWatts: 6100,
+          rackUnitHeight: 21,
+        }),
+      ]),
+    )
+  })
+
+  test("prefers business pod sdn firewall port-plan and power profiles for core firewall devices", async () => {
+    const workspace = createTempWorkspace()
+    const pluginConfig = loadPluginConfig(process.cwd())
+    const templateSources = [
+      { kind: "document" as const, ref: "fixtures/cabling-template.xlsx", note: "Cable planning template" },
+      { kind: "document" as const, ref: "fixtures/port-plan.xlsx", note: "Port plan workbook" },
+      { kind: "document" as const, ref: "fixtures/switch-parameters.xlsx", note: "设备参数应答表" },
+    ]
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: templateSources[0],
+                markdown: [
+                  "## 交换机上联表",
+                  "",
+                  "| 线缆编号 | 线缆名称 | 线缆程式 | 线缆 条数 | 线缆长度 (米) | 线缆 总长度 （米） | 起始端 | Unnamed: 7 | 目的端 | Unnamed: 9 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | NaN | NaN | NaN | NaN | NaN | 机架 | 设备名称/型号 | 机架 | 设备名称/型号 |",
+                  "| 1 | 100GE双头光跳纤 | 单模光纤双芯 LC-LC | 1 | 10 | 10 | G02 | 业务POD-核心防火墙-H3c SecPath M9000-x06-2 | G01 | 业务POD-SDN网关-H3C S12508G-AF-2 |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: templateSources[1],
+                markdown: [
+                  "## 防火墙",
+                  "",
+                  "| Unnamed: 0 | 业务 POD SDN防火墙1 NS-SecPath M9000-X06 | Unnamed: 2 | Unnamed: 3 | Unnamed: 4 | Unnamed: 5 | Unnamed: 6 | Unnamed: 7 | Unnamed: 8 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | 板卡编号 | 板卡类型 | 端口编号 | 端口类型 | 接至 | 电路开通方向 | 主要用途 | 备注 |",
+                  "| NaN | 0 | 子卡1--4端口100G以太网光接口(QSFP28) | 9 | 100GE LR4 | SDN网关1 | NS-SecPath M9000-X06 | 内部互联 | NaN |",
+                  "| NaN | 业务 POD SDN防火墙2 NS-SecPath M9000-X06 | NaN | NaN | NaN | NaN | NaN | NaN | NaN |",
+                  "| NaN | 板卡编号 | 板卡类型 | 端口编号 | 端口类型 | 接至 | 电路开通方向 | 主要用途 | 备注 |",
+                  "| NaN | 0 | 子卡1--4端口100G以太网光接口(QSFP28) | 13 | 100GE LR4 | SDN网关1 | NS-SecPath M9000-X06 | 内部互联 | NaN |",
+                  "| NaN | 公网出口防火墙1（互联网接入防火墙） NS-SecPath M9000-X06 | NaN | NaN | NaN | NaN | NaN | NaN | NaN |",
+                  "| NaN | 板卡编号 | 板卡类型 | 端口编号 | 端口类型 | 接至 | 电路开通方向 | 主要用途 | 备注 |",
+                  "| NaN | 0 | 子卡1--4端口100G以太网光接口(QSFP28) | 21 | 100GE LR4 | 出口路由器1 | NS-SecPath M9000-X06 | 内部互联 | NaN |",
+                  "| NaN | 公网出口防火墙2（互联网接入防火墙） NS-SecPath M9000-X06 | NaN | NaN | NaN | NaN | NaN | NaN | NaN |",
+                  "| NaN | 板卡编号 | 板卡类型 | 端口编号 | 端口类型 | 接至 | 电路开通方向 | 主要用途 | 备注 |",
+                  "| NaN | 0 | 子卡1--4端口100G以太网光接口(QSFP28) | 22 | 100GE LR4 | 出口路由器2 | NS-SecPath M9000-X06 | 内部互联 | NaN |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: templateSources[2],
+                markdown: [
+                  "## 设备参数表",
+                  "",
+                  "| 设备名称 | 设备型号 | 设备数量 | 设备尺寸（宽*深*高mm） | 设备大小(U) | 设备实配重量(KG) | 设备满配重量(KG) | 设备实配运行功耗（W） | 设备满配运行功耗（W） |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| 互联网接入防火墙 | H3c SecPath M9000-x06 | 4 | 440*857*263.9 | 6 | 80.67 | 120 | 1355 | 1710 |",
+                  "| SDN核心防火墙 | H3c SecPath M9000-x06 | 8 | 440*857*263.9 | 6 | 80.67 | 120 | 1777 | 2111 |",
+                ].join("\n"),
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+      ],
+    })
+
+    const result = await runExtractStructuredInputFromTemplates({
+      input: {
+        requirement: {
+          id: "req-template-firewall-profile-precedence-1",
+          projectName: "Template Firewall Profile Precedence Example",
+          scopeType: "data-center",
+          artifactRequests: ["device-cabling-table"],
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+        documentSources: templateSources,
+      },
+      pluginConfig,
+      runtime: createWorkerRuntimeContext(client, {
+        directory: workspace,
+        worktree: workspace,
+      }),
+      rootDirectory: workspace,
+    })
+
+    expect(result.warnings).not.toContain(
+      "Multiple workbook-derived port plan profiles matched device 业务POD-核心防火墙-H3c SecPath M9000-x06-2; selected '业务 POD SDN防火墙1 NS-SecPath M9000-X06' using longest-key precedence.",
+    )
+    expect(result.warnings).not.toContain(
+      "Multiple direct parameter-response power profiles matched device 业务POD-核心防火墙-H3c SecPath M9000-x06-2; selected '互联网接入防火墙' using longest-key precedence.",
+    )
+    expect(result.draftInput.structuredInput.devices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "业务POD-核心防火墙-H3c SecPath M9000-x06-2",
+          powerWatts: 1777,
+          rackUnitHeight: 6,
+        }),
+      ]),
+    )
+    expect(result.draftInput.structuredInput.links).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          endpointA: {
+            deviceName: "业务POD-核心防火墙-H3c SecPath M9000-x06-2",
+            portName: "0/13",
+          },
+          endpointB: {
+            deviceName: "业务POD-SDN网关-H3C S12508G-AF-2",
+            portName: expect.any(String),
+          },
+        }),
+      ]),
+    )
+  })
+
+  test("prefers model-matched out-of-band tor profiles over generic management switch titles", async () => {
+    const workspace = createTempWorkspace()
+    const pluginConfig = loadPluginConfig(process.cwd())
+    const templateSources = [
+      { kind: "document" as const, ref: "fixtures/cabling-template.xlsx", note: "Cable planning template" },
+      { kind: "document" as const, ref: "fixtures/port-plan.xlsx", note: "Port plan workbook" },
+    ]
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: templateSources[0],
+                markdown: [
+                  "## 服务器带内带外连线",
+                  "",
+                  "| 线缆编号 | 线缆名称 | 线缆程式 | 线缆 条数 | 线缆长度 (米) | 线缆 总长度 （米） | 起始端 | Unnamed: 7 | 目的端 | Unnamed: 9 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | NaN | NaN | NaN | NaN | NaN | 机架 | 设备名称/型号 | 机架 | 设备名称/型号 |",
+                  "| 1 | 以太网电缆 | F/UTP六类屏蔽线 | 1 | 5 | 5 | E15 | 业务POD-B1H服务器-CS5280H3-1 | H14 | 业务POD-千兆带外管理TOR-H3C S5560X-54C-EI-1 |",
+                  "",
+                  "## 交换机上联表",
+                  "",
+                  "| 线缆编号 | 线缆名称 | 线缆程式 | 线缆 条数 | 线缆长度 (米) | 线缆 总长度 （米） | 起始端 | Unnamed: 7 | 目的端 | Unnamed: 9 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | NaN | NaN | NaN | NaN | NaN | 机架 | 设备名称/型号 | 机架 | 设备名称/型号 |",
+                  "| 2 | 10GE双头光跳纤 | 单模光纤双芯 LC-LC | 1 | 15 | 15 | H14 | 业务POD-千兆带外管理TOR-H3C S5560X-54C-EI-1 | J11 | 管理POD-管理汇聚交换机-H3C S12508G-AF-1 |",
+                  "| 3 | 10GE双头光跳纤 | 单模光纤双芯 LC-LC | 1 | 12 | 12 | H14 | 业务POD-千兆带外管理TOR-H3C S5560X-54C-EI-1 | I11 | 管理POD-管理汇聚交换机-H3C S12508G-AF-2 |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: templateSources[1],
+                markdown: [
+                  "## 管理交换机",
+                  "",
+                  "| Unnamed: 0 | POD内管理接入交换机(10GE)奇数号 S5560X-54C-EI | Unnamed: 2 | Unnamed: 3 | Unnamed: 4 | Unnamed: 5 | Unnamed: 6 | Unnamed: 7 | Unnamed: 8 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | 板卡编号 | 板卡类型 | 端口编号 | 端口类型 | 接至 | 电路开通方向 | 主要用途 | 备注 |",
+                  "| NaN | 1 | 48个GE接口 | 41-42 | GE电口 | 千兆带内管理TOR(GE)2 | S5560X-54C-EI | keepalive | NaN |",
+                  "| NaN | 千兆带外管理IPMI(GE) S5560X-54C-EI | NaN | NaN | NaN | NaN | NaN | NaN | NaN |",
+                  "| NaN | 板卡编号 | 板卡类型 | 端口编号 | 端口类型 | 接至 | 电路开通方向 | 主要用途 | 备注 |",
+                  "| NaN | 1 | 48个GE接口 | 1-48 | GE电口 | 服务器 | 服务器 | IPMI网络 | NaN |",
+                  "| NaN | NaN | 4个10GE SFP+接口 | 49 | 10GE LX(1310nm,10km,LC) | 管理汇聚交换机1 | S12508G-AF | 内部互联 | NaN |",
+                  "| NaN | NaN | NaN | 50 | 10GE LX(1310nm,10km,LC) | 管理汇聚交换机2 | S12508G-AF | 内部互联 | NaN |",
+                ].join("\n"),
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+      ],
+    })
+
+    const result = await runExtractStructuredInputFromTemplates({
+      input: {
+        requirement: {
+          id: "req-template-oob-tor-precedence-1",
+          projectName: "Template OOB TOR Precedence Example",
+          scopeType: "data-center",
+          artifactRequests: ["device-cabling-table"],
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+        documentSources: templateSources,
+      },
+      pluginConfig,
+      runtime: createWorkerRuntimeContext(client, {
+        directory: workspace,
+        worktree: workspace,
+      }),
+      rootDirectory: workspace,
+    })
+
+    expect(result.warnings).not.toContain(
+      "Port plan matched device 业务POD-千兆带外管理TOR-H3C S5560X-54C-EI-1, but no remaining oob-mgmt port was available in workbook-derived assignments. Falling back to synthesized port naming.",
+    )
+    expect(result.warnings).not.toContain(
+      "Port plan matched device 业务POD-千兆带外管理TOR-H3C S5560X-54C-EI-1, but no remaining uplink port was available in workbook-derived assignments. Falling back to synthesized port naming.",
+    )
+    expect(result.draftInput.structuredInput.links).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          endpointB: {
+            deviceName: "业务POD-千兆带外管理TOR-H3C S5560X-54C-EI-1",
+            portName: "1/1",
+          },
+          linkType: "oob-mgmt",
+        }),
+        expect.objectContaining({
+          endpointA: {
+            deviceName: "业务POD-千兆带外管理TOR-H3C S5560X-54C-EI-1",
+            portName: "1/49",
+          },
+          linkType: "uplink",
+        }),
+        expect.objectContaining({
+          endpointA: {
+            deviceName: "业务POD-千兆带外管理TOR-H3C S5560X-54C-EI-1",
+            portName: "1/50",
+          },
+          linkType: "uplink",
+        }),
+      ]),
+    )
+  })
+
+  test("binds numbered business-pod sdn gateway devices to the matching gateway profile", async () => {
+    const workspace = createTempWorkspace()
+    const pluginConfig = loadPluginConfig(process.cwd())
+    const templateSources = [
+      { kind: "document" as const, ref: "fixtures/cabling-template.xlsx", note: "Cable planning template" },
+      { kind: "document" as const, ref: "fixtures/port-plan.xlsx", note: "Port plan workbook" },
+    ]
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: templateSources[0],
+                markdown: [
+                  "## 交换机上联表",
+                  "",
+                  "| 线缆编号 | 线缆名称 | 线缆程式 | 线缆 条数 | 线缆长度 (米) | 线缆 总长度 （米） | 起始端 | Unnamed: 7 | 目的端 | Unnamed: 9 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | NaN | NaN | NaN | NaN | NaN | 机架 | 设备名称/型号 | 机架 | 设备名称/型号 |",
+                  "| 1 | 100GE双头光跳纤 | 单模光纤双芯 LC-LC | 1 | 15 | 15 | G01 | 业务POD-SDN网关-H3C S12508G-AF-2 | G02 | 业务POD-核心防火墙-H3c SecPath M9000-x06-2 |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: templateSources[1],
+                markdown: [
+                  "## SDN网关",
+                  "",
+                  "| Unnamed: 0 | 业务POD SDN网关1 S12508G-AF | Unnamed: 2 | Unnamed: 3 | Unnamed: 4 | Unnamed: 5 | Unnamed: 6 | Unnamed: 7 | Unnamed: 8 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | 板卡编号 | 板卡类型 | 端口编号 | 端口类型 | 接至 | 电路开通方向 | 主要用途 | 备注 |",
+                  "| NaN | 2 | 36端口100G以太网光接口模块(QSFP28)(TE) | 17 | 100GE LR4 | 业务POD SDN网关2 | LS-12516G-AF | 内部互联 | NaN |",
+                  "| NaN | 业务POD SDN网关2 S12508G-AF | NaN | NaN | NaN | NaN | NaN | NaN | NaN |",
+                  "| NaN | 板卡编号 | 板卡类型 | 端口编号 | 端口类型 | 接至 | 电路开通方向 | 主要用途 | 备注 |",
+                  "| NaN | 2 | 36端口100G以太网光接口模块(QSFP28)(TE) | 25 | 100GE LR4 | 业务POD SDN网关1 | LS-12516G-AF | 内部互联 | NaN |",
+                  "| NaN | DMZ POD SDN网关1 S12508G-AF | NaN | NaN | NaN | NaN | NaN | NaN | NaN |",
+                  "| NaN | 板卡编号 | 板卡类型 | 端口编号 | 端口类型 | 接至 | 电路开通方向 | 主要用途 | 备注 |",
+                  "| NaN | 2 | 36端口100G以太网光接口模块(QSFP28)(TE) | 31 | 100GE LR4 | DMZ POD SDN网关2 | LS-12516G-AF | 内部互联 | NaN |",
+                ].join("\n"),
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+      ],
+    })
+
+    const result = await runExtractStructuredInputFromTemplates({
+      input: {
+        requirement: {
+          id: "req-template-sdn-gateway-instance-1",
+          projectName: "Template SDN Gateway Instance Example",
+          scopeType: "data-center",
+          artifactRequests: ["device-cabling-table"],
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+        documentSources: templateSources,
+      },
+      pluginConfig,
+      runtime: createWorkerRuntimeContext(client, {
+        directory: workspace,
+        worktree: workspace,
+      }),
+      rootDirectory: workspace,
+    })
+
+    expect(result.warnings).not.toContain(
+      "Multiple workbook-derived port plan profiles matched device 业务POD-SDN网关-H3C S12508G-AF-2; selected '业务POD SDN网关1 S12508G-AF' using longest-key precedence.",
+    )
+    expect(result.draftInput.structuredInput.links).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          endpointA: {
+            deviceName: "业务POD-SDN网关-H3C S12508G-AF-2",
+            portName: "2/25",
+          },
+          endpointB: {
+            deviceName: "业务POD-核心防火墙-H3c SecPath M9000-x06-2",
+            portName: expect.any(String),
+          },
+          linkType: "uplink",
+        }),
+      ]),
+    )
+  })
+
   test("prefers parameter-response power over rack-layout fallback power for the same device", async () => {
     const workspace = createTempWorkspace()
     const pluginConfig = loadPluginConfig(process.cwd())
@@ -2558,6 +3392,12 @@ describe("runExtractStructuredInputFromTemplates", () => {
     )
     expect(result.warnings).not.toContain(
       "No device parameter-response workbook was recognized, so device power could not be resolved from required user input.",
+    )
+    expect(result.warnings).toEqual(
+      expect.not.arrayContaining([
+        expect.stringContaining("Multiple workbook-derived port plan profiles matched device 业务POD-千兆带内管理TOR-H3C S5560X-54C-EI-11"),
+        expect.stringContaining("Multiple direct parameter-response power profiles matched device 业务POD-千兆带内管理TOR-H3C S5560X-54C-EI-11"),
+      ]),
     )
     expect(result.draftInput.structuredInput.devices).toEqual(
       expect.arrayContaining([

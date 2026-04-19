@@ -1,6 +1,6 @@
 # Active Backlog
 
-**Last Updated:** 2026-04-16
+**Last Updated:** 2026-04-20
 
 ---
 
@@ -15,7 +15,7 @@
   - project-bound rack power / non-standard rack-U confirmations are explicit inputs rather than hidden assumptions
   - real-template quality runs retain workbook-derived ports and power while reducing importer-caused physical blockers
 - **Status:** In Progress
-- **Current slice landed:** workbook-driven structured import, project-bound port placement, device power import, and rack defaults are complete; remaining work is physical completeness reduction on real-template runs
+- **Current slice landed:** workbook-driven structured import, project-bound port placement, device power import, rack defaults, and real-bundle alias disambiguation for firewall / SDN gateway / TOR are complete; remaining work is reducing the non-confirmed physical blockers that still survive real-template quality runs
 
 ---
 

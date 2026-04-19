@@ -1,13 +1,13 @@
 # Progress Snapshot
 
-**Last Updated:** 2026-04-16  
+**Last Updated:** 2026-04-20  
 **Status:** MVP Complete → Post-roadmap real-template physical import deepening in progress
 
 ---
 
 ## Current Stage
 
-✅ **Post-roadmap template-import deepening in progress** - SCN-08 foundation, workbook-driven port placement, device power import, and rack defaults are now landed on `dev`; the next focus is closing the remaining physical completeness gaps in real-template runs.
+✅ **Post-roadmap template-import deepening in progress** - SCN-08 foundation, workbook-driven port placement, device power import, rack defaults, and model-first real-template matching for the remaining firewall / gateway / TOR families are now landed on `dev`; the next focus is reducing the remaining non-confirmed physical blockers after importer-caused warning noise has been pushed down.
 
 ✅ **Current Status:** all roadmap phases through Phase 10 remain complete, and the active post-roadmap work is now deterministic real-template import quality deepening rather than guardrail hardening.
 
@@ -29,6 +29,8 @@
 - ✅ rack metadata now defaults to `48U` and `7kW` on the import path when the project did not provide explicit rack values, while still surfacing confirmation warnings
 - ✅ inventory workbooks are still recognized explicitly and surfaced as warnings instead of being guessed into structured facts
 - ✅ automated regression coverage now locks the workbook-markdown parser against real checked-in sheet shapes (including duplicated rack-power headers like `7kw.1`), while real workbook conversion remains manually verified through MarkItDown
+- ✅ workbook profile matching now prefers normalized model identifiers, role hints, scope hints, and explicit `-1 / -2` instance binding for the remaining real-template firewall / gateway / TOR families
+- ✅ the checked-in real bundle now resolves the previously noisy TOR aliases without residual TOR warnings, and core-area out-of-band TOR uplinks now bind to workbook ports `49-50` instead of synthesized placeholders
 
 ### Guardrail Hooks & SCN-07 (NEW ✅)
 - ✅ 4 new pre-execution hooks now exist: `missing-required-input-guard`, `artifact-generation-precheck`, `low-confidence-export-guard`, and `assumption-review-reminder`

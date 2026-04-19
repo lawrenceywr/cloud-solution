@@ -46,6 +46,8 @@
 - [x] made project-bound port-plan workbooks drive actual endpoint port placement for matched devices
 - [x] made user-provided inventory + parameter-response workbooks drive device `powerWatts`
 - [x] supported project-specific device-name variation and `A设备/B设备 -> A01/B01` parity mapping
+- [x] reduced remaining real-bundle profile ambiguity for firewall, SDN gateway, and TOR families with model-first matching plus stronger role/scope/instance scoring
+- [x] made core-area out-of-band TOR uplinks consume workbook uplink ports `49-50`, eliminating the last residual TOR warning in the checked-in real bundle
 
 ### D. Rack Defaults with Confirmation-Friendly Semantics
 
@@ -57,9 +59,9 @@
 
 ## Next Focus
 
-1. Expand deterministic consumption of remaining real workbook facts so fewer physical blockers survive the first real-template quality run.
+1. Reduce the remaining non-TOR real-template blockers so the next quality run is dominated by true confirmation gaps rather than importer matching gaps.
 2. Turn more physical facts from “inferred but structurally present” into “ready for explicit confirmation” instead of leaving them as absent gaps.
-3. Re-run broader real-template quality checks until remaining blockers are mostly true project-confirmation gaps rather than importer omissions.
+3. Re-run broader real-template quality checks until the remaining validation issues are mostly confirmation or threshold decisions, not parser ambiguity.
 
 ---
 
@@ -80,3 +82,5 @@
 - manual QA 2: workbook-derived power now appears in `structuredInput.devices[]` (for example `业务POD-B1H服务器-CS5280H3-1 -> 892W`, `业务POD-千兆带内管理TOR-H3C S5560X-54C-EI-11 -> 55W`)
 - manual QA 3: missing rack metadata defaults to `48U / 7kW` with confirmation warnings, while explicit `45U` rack headers override the default height
 - manual QA 4: real-template roundtrip through `draft_topology_model` no longer hits `duplicate_device_id`
+- manual QA 5: the checked-in real bundle no longer reports firewall / SDN gateway / TOR alias warnings, and `核心区-千兆带外管理TOR-H3C S5560X-54C-EI-1` now binds uplinks to workbook ports `1/49` and `1/50`
+- targeted verification update: `bun test "src/features/extract-structured-input-from-templates.test.ts"` → passing (`35 pass / 0 fail`), `bun run typecheck` → passing, `bun run build` → passing, real-bundle replay → `TOR warning count = 0`

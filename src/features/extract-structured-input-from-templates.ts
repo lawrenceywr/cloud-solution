@@ -109,6 +109,15 @@ type PortPlanProfile = {
   assignments: PortPlanAssignment[]
 }
 
+type PortPlanColumnIndexes = {
+  boardNumber: number
+  boardType: number
+  portNumber: number
+  connectTo: number
+  direction: number
+  purpose: number
+}
+
 type InventoryProfile = {
   title: string
   matchKey: string
@@ -138,6 +147,57 @@ type MarkdownSection = {
   title: string
   body: string
 }
+
+type ScoredProfileMatch<T extends { title: string, matchKey: string }> = {
+  profile: T
+  score: number
+}
+
+const SCOPE_HINT_PATTERNS: Array<{ pattern: RegExp, value: string }> = [
+  { pattern: /业务\s*POD/iu, value: normalizeMatchText("业务POD") },
+  { pattern: /DMZ\s*POD/iu, value: normalizeMatchText("DMZPOD") },
+  { pattern: /管理\s*POD|管理网/iu, value: normalizeMatchText("管理POD") },
+  { pattern: /核心区/iu, value: normalizeMatchText("核心区") },
+  { pattern: /互联层/iu, value: normalizeMatchText("互联层") },
+  { pattern: /出口层|专网出口|公网接入/iu, value: normalizeMatchText("出口层") },
+]
+
+const ROLE_HINT_PATTERNS: Array<{ pattern: RegExp, value: string }> = [
+  { pattern: /南北向(?:汇聚|互联)交换机/iu, value: normalizeMatchText("南北向汇聚交换机") },
+  { pattern: /东西向(?:汇聚|互联)交换机/iu, value: normalizeMatchText("东西向汇聚交换机") },
+  { pattern: /管理核心交换机/iu, value: normalizeMatchText("管理核心交换机") },
+  { pattern: /管理汇聚交换机/iu, value: normalizeMatchText("管理汇聚交换机") },
+  { pattern: /存储汇聚交换机/iu, value: normalizeMatchText("存储汇聚交换机") },
+  { pattern: /业务专用设备接入交换机/iu, value: normalizeMatchText("业务专用设备接入交换机") },
+  {
+    pattern: /SDN核心防火墙|业务\s*POD\s*SDN防火墙|DMZ\s*POD\s*SDN防火墙|SDN防火墙|核心防火墙/iu,
+    value: normalizeMatchText("SDN防火墙"),
+  },
+  { pattern: /互联网接入防火墙|公网(?:出口|接入)防火墙|出口防火墙/iu, value: normalizeMatchText("互联网接入防火墙") },
+  { pattern: /管理域防火墙/iu, value: normalizeMatchText("管理域防火墙") },
+  { pattern: /公网接入路由器/iu, value: normalizeMatchText("公网接入路由器") },
+  { pattern: /IP承载网接入路由器/iu, value: normalizeMatchText("IP承载网接入路由器") },
+  { pattern: /专网出口路由器/iu, value: normalizeMatchText("专网出口路由器") },
+  { pattern: /SDN负载均衡(?:器)?/iu, value: normalizeMatchText("SDN负载均衡") },
+  { pattern: /负载均衡(?:器)?(?:[（(]SSL卸载[）)])?/iu, value: normalizeMatchText("负载均衡") },
+  { pattern: /SDN网关/iu, value: normalizeMatchText("SDN网关") },
+  { pattern: /SDN核心交换机/iu, value: normalizeMatchText("SDN核心交换机") },
+  { pattern: /SDN硬件接入交换机\((?:10|25)GE\)/iu, value: normalizeMatchText("SDN硬件接入交换机") },
+  { pattern: /业务\/存储接入交换机\(10GE\)/iu, value: normalizeMatchText("业务存储接入交换机") },
+  {
+    pattern: /[千干]兆带内\/带外管理TOR/iu,
+    value: normalizeMatchText("带内管理TOR"),
+  },
+  {
+    pattern: /千兆带外管理(?:TOR|IPMI)|带外管理(?:TOR|IPMI)|千兆带外管理交换机/iu,
+    value: normalizeMatchText("带外管理TOR"),
+  },
+  {
+    pattern: /万兆带内管理TOR|千兆带内管理TOR|带内管理TOR|POD内管理接入交换机|千兆管理TOR/iu,
+    value: normalizeMatchText("带内管理TOR"),
+  },
+  { pattern: /核心交换机/iu, value: normalizeMatchText("核心交换机") },
+]
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values)]
@@ -362,6 +422,30 @@ function extractTrailingInstanceNumber(value: string): number | undefined {
   return match?.[1] ? Number.parseInt(match[1], 10) : undefined
 }
 
+function extractProfileInstanceNumber(value: string): number | undefined {
+  const normalized = value.normalize("NFKC")
+  for (const { pattern } of ROLE_HINT_PATTERNS) {
+    const match = normalized.match(pattern)
+    if (!match?.[0] || typeof match.index !== "number") {
+      continue
+    }
+
+    const trailingText = normalized.slice(match.index + match[0].length)
+    const instanceMatch = trailingText.match(/^\s*(\d+)\b/u)
+    if (instanceMatch?.[1]) {
+      return Number.parseInt(instanceMatch[1], 10)
+    }
+  }
+
+  const normalizedWithoutModelTokens = normalized.replace(/[A-Z][A-Z0-9-]{3,}/gu, " ")
+  const looseInstanceMatch = normalizedWithoutModelTokens.match(/\b([1-9])\b/u)
+  if (looseInstanceMatch?.[1]) {
+    return Number.parseInt(looseInstanceMatch[1], 10)
+  }
+
+  return undefined
+}
+
 function inferDeviceParity(value: string): "odd" | "even" | undefined {
   if (/(?:-|\b)A\d*$/i.test(value)) {
     return "odd"
@@ -403,11 +487,79 @@ function inferParity(value: string): "odd" | "even" | undefined {
   return undefined
 }
 
+function extractRoleHint(value: string): string | undefined {
+  const normalized = value.normalize("NFKC")
+  for (const { pattern, value: roleHint } of ROLE_HINT_PATTERNS) {
+    const match = normalized.match(pattern)
+    if (match?.[0]) {
+      return roleHint
+    }
+  }
+
+  return undefined
+}
+
+function extractScopeHint(value: string): string | undefined {
+  const normalized = value.normalize("NFKC")
+  for (const { pattern, value: scopeHint } of SCOPE_HINT_PATTERNS) {
+    if (pattern.test(normalized)) {
+      return scopeHint
+    }
+  }
+
+  return undefined
+}
+
+function scoreProfileContextMatch(args: {
+  deviceName: string
+  profileContext: string
+}): number {
+  const deviceRoleHint = extractRoleHint(args.deviceName)
+  const profileRoleHint = extractRoleHint(args.profileContext)
+  const deviceScopeHint = extractScopeHint(args.deviceName)
+  const profileScopeHint = extractScopeHint(args.profileContext)
+  const deviceInstanceNumber = extractTrailingInstanceNumber(args.deviceName)
+  const profileInstanceNumber = extractProfileInstanceNumber(args.profileContext)
+
+  let score = 0
+
+  if (deviceRoleHint && profileRoleHint) {
+    if (deviceRoleHint === profileRoleHint) {
+      score += 120
+    } else {
+      score -= 60
+    }
+  }
+
+  if (deviceScopeHint && profileScopeHint) {
+    if (deviceScopeHint === profileScopeHint) {
+      score += 70
+    } else {
+      score -= 35
+    }
+  }
+
+  if (typeof deviceInstanceNumber === "number" && typeof profileInstanceNumber === "number") {
+    if (deviceInstanceNumber === profileInstanceNumber) {
+      score += 90
+    } else {
+      score -= 60
+    }
+  }
+
+  return score
+}
+
 function deriveProfileMatchKey(args: {
   sectionTitle: string
   profileTitle: string
 }): string {
   const combined = `${args.sectionTitle} ${args.profileTitle}`
+  const roleHint = extractRoleHint(combined)
+  if (roleHint) {
+    return roleHint
+  }
+
   const explicitPatterns = [
     /[A-Z]\d{1,2}-?[HK]?服务器/iu,
     /千兆带内管理TOR/iu,
@@ -415,6 +567,8 @@ function deriveProfileMatchKey(args: {
     /带内管理TOR/iu,
     /带外管理TOR/iu,
     /万兆带内管理TOR/iu,
+    /南北向(?:汇聚|互联)交换机/iu,
+    /东西向(?:汇聚|互联)交换机/iu,
     /SDN硬件接入交换机\((?:10|25)GE\)/iu,
     /业务\/存储接入交换机\(10GE\)/iu,
     /存储接入交换机\((?:10|40)GE\)/iu,
@@ -438,6 +592,7 @@ function deriveProfileMatchKey(args: {
 function extractModelKey(value: string): string | undefined {
   const matches = value.match(/[A-Z][A-Z0-9-]{3,}/g) ?? []
   const sorted = matches
+    .map((match) => match.replace(/-\d+$/u, ""))
     .map((match) => normalizeMatchText(match))
     .filter((match) => /\d/.test(match))
     .sort((left, right) => right.length - left.length)
@@ -516,14 +671,14 @@ function classifyPortPlanAssignment(args: {
   const purpose = cleanCell(args.purpose)
   const context = `${args.sectionTitle} ${args.profileTitle} ${args.boardType ?? ""} ${connectTo} ${direction} ${purpose}`
 
-  if (/IPMI|HDM/i.test(context)) {
-    return { category: "oob-mgmt", portType: "oob-mgmt", purpose: purpose || "IPMI网络" }
-  }
   if (/keepalive|IPL/i.test(context)) {
     return { category: "peer-link", portType: "peer-link", purpose: purpose || "peer-link" }
   }
   if (/核心交换机|汇聚交换机|网关|路由器|防火墙|内部互联/i.test(context)) {
     return { category: "uplink", portType: "uplink", purpose: purpose || "内部互联" }
+  }
+  if (/IPMI|HDM/i.test(context)) {
+    return { category: "oob-mgmt", portType: "oob-mgmt", purpose: purpose || "IPMI网络" }
   }
   if (/存储网|存储接入|磁盘阵列|高性能文件存储/i.test(context)) {
     return { category: "storage", portType: "storage", purpose: purpose || "存储网" }
@@ -650,15 +805,52 @@ function findMatchingInventoryProfiles(args: {
   const deviceModelKey = extractModelKey(args.deviceName)
 
   return args.state.inventoryProfiles
-    .filter((profile) => {
+    .map((profile) => {
       const keyMatches = matchesByProfileKey({
         deviceName: args.deviceName,
         profileKey: profile.matchKey,
       })
-      const modelMatches = !!profile.modelKey && !!deviceModelKey && deviceModelKey.includes(profile.modelKey)
-      return keyMatches || modelMatches
+      const exactModelMatch = !!profile.modelKey && !!deviceModelKey && profile.modelKey === deviceModelKey
+      const partialModelMatch = !exactModelMatch
+        && !!profile.modelKey
+        && !!deviceModelKey
+        && (deviceModelKey.includes(profile.modelKey) || profile.modelKey.includes(deviceModelKey))
+
+      let score = 0
+      if (exactModelMatch) {
+        score += 220
+      } else if (partialModelMatch) {
+        score += 120
+      }
+
+      if (keyMatches) {
+        score += 80
+      }
+
+      score += scoreProfileContextMatch({
+        deviceName: args.deviceName,
+        profileContext: profile.title,
+      })
+
+      return {
+        profile,
+        score,
+      }
     })
-    .sort((left, right) => right.matchKey.length - left.matchKey.length)
+    .filter((candidate) => candidate.score > 0)
+    .sort((left, right) => {
+      if (right.score !== left.score) {
+        return right.score - left.score
+      }
+
+      const modelLengthDelta = (right.profile.modelKey?.length ?? 0) - (left.profile.modelKey?.length ?? 0)
+      if (modelLengthDelta !== 0) {
+        return modelLengthDelta
+      }
+
+      return right.profile.matchKey.length - left.profile.matchKey.length
+    })
+    .map((candidate) => candidate.profile)
 }
 
 function warnOnAmbiguousMatches(args: {
@@ -681,15 +873,46 @@ function warnOnAmbiguousMatches(args: {
   }
 }
 
+function warnOnAmbiguousScoredMatches<T extends { title: string, matchKey: string }>(args: {
+  state: TemplateAdapterState
+  deviceName: string
+  matches: Array<ScoredProfileMatch<T>>
+  warningPrefix: string
+}) {
+  const { state, deviceName, matches, warningPrefix } = args
+  const strongestMatch = matches[0]
+  const secondMatch = matches[1]
+  if (!strongestMatch || !secondMatch) {
+    return
+  }
+
+  if (shouldSuppressEquivalentAliasWarning({
+    deviceName,
+    strongestProfile: strongestMatch.profile,
+    secondProfile: secondMatch.profile,
+  })) {
+    return
+  }
+
+  if (
+    secondMatch.score === strongestMatch.score
+    && secondMatch.profile.matchKey.length === strongestMatch.profile.matchKey.length
+  ) {
+    state.warnings.push(
+      `${warningPrefix} matched device ${deviceName}; selected '${strongestMatch.profile.title}' using longest-key precedence.`,
+    )
+  }
+}
+
 function findMatchingParameterPowerProfiles(args: {
   state: TemplateAdapterState
   inventoryProfile: InventoryProfile
   deviceName: string
-}): ParameterPowerProfile[] {
+}): Array<ScoredProfileMatch<ParameterPowerProfile>> {
   const deviceModelKey = extractModelKey(args.deviceName)
 
   return args.state.parameterPowerProfiles
-    .filter((profile) => {
+    .map((profile) => {
       const inventoryKeyMatches = matchesByProfileKey({
         deviceName: args.inventoryProfile.title,
         profileKey: profile.matchKey,
@@ -703,16 +926,49 @@ function findMatchingParameterPowerProfiles(args: {
           (!!args.inventoryProfile.modelKey && profile.modelKey === args.inventoryProfile.modelKey)
           || (!!deviceModelKey && deviceModelKey.includes(profile.modelKey))
         )
+      const contextScore = scoreProfileContextMatch({
+        deviceName: args.deviceName,
+        profileContext: profile.title,
+      })
 
-      return (inventoryKeyMatches || deviceKeyMatches) && modelMatches
+      if (!modelMatches) {
+        return undefined
+      }
+
+      let score = 0
+      if (inventoryKeyMatches) {
+         score += 90
+      }
+      if (deviceKeyMatches) {
+        score += 70
+      }
+      score += 180
+      score += contextScore
+
+      return {
+        profile,
+        score,
+      }
     })
-    .sort((left, right) => right.matchKey.length - left.matchKey.length)
+    .filter((candidate): candidate is ScoredProfileMatch<ParameterPowerProfile> => !!candidate)
+    .sort((left, right) => {
+      if (right.score !== left.score) {
+        return right.score - left.score
+      }
+
+      const modelLengthDelta = (right.profile.modelKey?.length ?? 0) - (left.profile.modelKey?.length ?? 0)
+      if (modelLengthDelta !== 0) {
+        return modelLengthDelta
+      }
+
+      return right.profile.matchKey.length - left.profile.matchKey.length
+    })
 }
 
 function findDirectParameterPowerProfiles(args: {
   state: TemplateAdapterState
   deviceName: string
-}): ParameterPowerProfile[] {
+}): Array<ScoredProfileMatch<ParameterPowerProfile>> {
   const deviceModelKey = extractModelKey(args.deviceName)
 
   const candidates = args.state.parameterPowerProfiles
@@ -739,14 +995,19 @@ function findDirectParameterPowerProfiles(args: {
 
       let score = 0
       if (exactModelMatch) {
-        score += 200
+        score += 260
       } else if (partialModelMatch) {
-        score += 120
+        score += 140
       }
 
       if (keyMatches) {
         score += 80
       }
+
+      score += scoreProfileContextMatch({
+        deviceName: args.deviceName,
+        profileContext: profile.title,
+      })
 
       return {
         profile,
@@ -765,7 +1026,43 @@ function findDirectParameterPowerProfiles(args: {
       return right.profile.matchKey.length - left.profile.matchKey.length
     })
 
-  return candidates.map((candidate) => candidate.profile)
+  return candidates
+}
+
+function isTorRoleHint(roleHint: string | undefined): boolean {
+  return roleHint === normalizeMatchText("带内管理TOR") || roleHint === normalizeMatchText("带外管理TOR")
+}
+
+function buildProfileWarningContext(profile: {
+  title: string
+  sectionTitle?: string
+}): string {
+  return `${profile.sectionTitle ?? ""} ${profile.title}`.trim()
+}
+
+function shouldSuppressEquivalentAliasWarning(args: {
+  deviceName: string
+  strongestProfile: { title: string, modelKey?: string, sectionTitle?: string, powerWatts?: number, rackUnitHeight?: number }
+  secondProfile: { title: string, modelKey?: string, sectionTitle?: string, powerWatts?: number, rackUnitHeight?: number }
+}): boolean {
+  const strongestRoleHint = extractRoleHint(buildProfileWarningContext(args.strongestProfile))
+  const secondRoleHint = extractRoleHint(buildProfileWarningContext(args.secondProfile))
+
+  if (!isTorRoleHint(strongestRoleHint) || strongestRoleHint !== secondRoleHint) {
+    return false
+  }
+
+  if (!args.strongestProfile.modelKey || args.strongestProfile.modelKey !== args.secondProfile.modelKey) {
+    return false
+  }
+
+  const strongestPower = args.strongestProfile.powerWatts
+  const secondPower = args.secondProfile.powerWatts
+  if (typeof strongestPower === "number" || typeof secondPower === "number") {
+    return strongestPower === secondPower && args.strongestProfile.rackUnitHeight === args.secondProfile.rackUnitHeight
+  }
+
+  return true
 }
 
 function hydratePowerForDevice(args: {
@@ -796,26 +1093,26 @@ function hydratePowerForDevice(args: {
         deviceName,
       })
     : []
-  warnOnAmbiguousMatches({
+  warnOnAmbiguousScoredMatches({
     state,
     deviceName,
     matches: parameterMatches,
     warningPrefix: "Multiple parameter-response power profiles",
   })
-  let parameterProfile = parameterMatches[0]
+  let parameterProfile = parameterMatches[0]?.profile
 
   if (!parameterProfile) {
     const directParameterMatches = findDirectParameterPowerProfiles({
       state,
       deviceName,
     })
-    warnOnAmbiguousMatches({
+    warnOnAmbiguousScoredMatches({
       state,
       deviceName,
       matches: directParameterMatches,
       warningPrefix: "Multiple direct parameter-response power profiles",
     })
-    parameterProfile = directParameterMatches[0]
+    parameterProfile = directParameterMatches[0]?.profile
   }
 
   if (!parameterProfile) {
@@ -1677,6 +1974,7 @@ function parsePortPlanWorkbook(args: {
     let currentBoardNumber = ""
     let currentBoardType = ""
     let insideTable = false
+    let currentColumnIndexes: PortPlanColumnIndexes | undefined
 
     for (const row of rows) {
       if (looksLikeProfileTitleRow(row)) {
@@ -1684,27 +1982,29 @@ function parsePortPlanWorkbook(args: {
         insideTable = false
         currentBoardNumber = ""
         currentBoardType = ""
+        currentColumnIndexes = undefined
         continue
       }
 
       if (looksLikeTableHeaderRow(row)) {
-        insideTable = true
+        currentColumnIndexes = findPortPlanColumnIndexes(row)
+        insideTable = !!currentColumnIndexes
         currentBoardNumber = ""
         currentBoardType = ""
         continue
       }
 
-      if (!insideTable) {
+      if (!insideTable || !currentColumnIndexes) {
         continue
       }
 
-      const portIndexes = parsePortNumberSpec(row[2])
+      const portIndexes = parsePortNumberSpec(row[currentColumnIndexes.portNumber])
       if (portIndexes.length === 0) {
         continue
       }
 
-      currentBoardNumber = cleanCell(row[0]) || currentBoardNumber
-      currentBoardType = cleanCell(row[1]) || currentBoardType
+      currentBoardNumber = cleanCell(row[currentColumnIndexes.boardNumber]) || currentBoardNumber
+      currentBoardType = cleanCell(row[currentColumnIndexes.boardType]) || currentBoardType
       if (!currentBoardNumber) {
         continue
       }
@@ -1713,9 +2013,9 @@ function parsePortPlanWorkbook(args: {
         sectionTitle: section.title,
         profileTitle: currentProfileTitle,
         boardType: currentBoardType,
-        connectTo: row[4],
-        direction: row[5],
-        purpose: row[6],
+        connectTo: row[currentColumnIndexes.connectTo],
+        direction: row[currentColumnIndexes.direction],
+        purpose: row[currentColumnIndexes.purpose],
       })
       const matchKey = deriveProfileMatchKey({
         sectionTitle: section.title,
@@ -1754,38 +2054,112 @@ function parsePortPlanWorkbook(args: {
   }
 }
 
+function findPortPlanColumnIndexes(row: string[]): PortPlanColumnIndexes | undefined {
+  const boardNumber = row.findIndex((cell) => cell.includes("板卡编号"))
+  const boardType = row.findIndex((cell) => cell.includes("板卡类型"))
+  const portNumber = row.findIndex((cell) => cell.includes("端口编号"))
+  const connectTo = row.findIndex((cell) => cell.includes("接至"))
+  const direction = row.findIndex((cell) => cell.includes("电路开通方向"))
+  const purpose = row.findIndex((cell) => cell.includes("主要用途"))
+
+  if (
+    boardNumber < 0
+    || boardType < 0
+    || portNumber < 0
+    || connectTo < 0
+    || direction < 0
+    || purpose < 0
+  ) {
+    return undefined
+  }
+
+  return {
+    boardNumber,
+    boardType,
+    portNumber,
+    connectTo,
+    direction,
+    purpose,
+  }
+}
+
 function findMatchingPortPlanProfiles(args: {
   state: TemplateAdapterState
   deviceName: string
-}): PortPlanProfile[] {
+}): Array<{ profile: PortPlanProfile, score: number }> {
   const normalizedDeviceName = normalizeMatchText(args.deviceName)
   const relaxedDeviceName = relaxPortFamilyKey(normalizedDeviceName)
   const deviceParity = inferDeviceParity(args.deviceName)
+  const deviceModelKey = extractModelKey(args.deviceName)
 
-  const candidates = args.state.portPlanProfiles.filter((profile: PortPlanProfile) => {
-    const profileMatchesDevice = !!profile.matchKey && (
-      normalizedDeviceName.includes(profile.matchKey)
-      || profile.matchKey.includes(normalizedDeviceName)
-    )
-    const relaxedProfileKey = relaxPortFamilyKey(profile.matchKey)
-    const relaxedMatchesDevice = !!relaxedProfileKey && (
-      relaxedDeviceName.includes(relaxedProfileKey)
-      || relaxedProfileKey.includes(relaxedDeviceName)
-    )
-    const modelMatchesDevice = !!profile.modelKey && normalizedDeviceName.includes(profile.modelKey)
+  const candidates = args.state.portPlanProfiles
+    .map((profile: PortPlanProfile) => {
+      const profileContext = `${profile.sectionTitle} ${profile.title}`
+      const profileMatchesDevice = !!profile.matchKey && (
+        normalizedDeviceName.includes(profile.matchKey)
+        || profile.matchKey.includes(normalizedDeviceName)
+      )
+      const relaxedProfileKey = relaxPortFamilyKey(profile.matchKey)
+      const relaxedMatchesDevice = !profileMatchesDevice && !!relaxedProfileKey && (
+        relaxedDeviceName.includes(relaxedProfileKey)
+        || relaxedProfileKey.includes(relaxedDeviceName)
+      )
+      const exactModelMatch = !!profile.modelKey && !!deviceModelKey && profile.modelKey === deviceModelKey
+      const partialModelMatch = !exactModelMatch
+        && !!profile.modelKey
+        && !!deviceModelKey
+        && (deviceModelKey.includes(profile.modelKey) || profile.modelKey.includes(deviceModelKey))
 
-    if (!profileMatchesDevice && !relaxedMatchesDevice && !modelMatchesDevice) {
-      return false
-    }
+      if (!profileMatchesDevice && !relaxedMatchesDevice && !exactModelMatch && !partialModelMatch) {
+        return undefined
+      }
 
-    if (!profile.parity || !deviceParity) {
-      return true
-    }
+      if (profile.parity && deviceParity && profile.parity !== deviceParity) {
+        return undefined
+      }
 
-    return profile.parity === deviceParity
-  })
+      let score = 0
+      if (profileMatchesDevice) {
+        score += 120
+      } else if (relaxedMatchesDevice) {
+        score += 60
+      }
 
-  return candidates.sort((left: PortPlanProfile, right: PortPlanProfile) => right.matchKey.length - left.matchKey.length)
+      if (exactModelMatch) {
+        score += 220
+      } else if (partialModelMatch) {
+        score += 110
+      }
+
+      if (profile.parity && deviceParity && profile.parity === deviceParity) {
+        score += 20
+      }
+
+      score += scoreProfileContextMatch({
+        deviceName: args.deviceName,
+        profileContext,
+      })
+
+      return {
+        profile,
+        score,
+      }
+    })
+    .filter((candidate): candidate is { profile: PortPlanProfile, score: number } => !!candidate)
+    .sort((left, right) => {
+      if (right.score !== left.score) {
+        return right.score - left.score
+      }
+
+      const modelLengthDelta = (right.profile.modelKey?.length ?? 0) - (left.profile.modelKey?.length ?? 0)
+      if (modelLengthDelta !== 0) {
+        return modelLengthDelta
+      }
+
+      return right.profile.matchKey.length - left.profile.matchKey.length
+    })
+
+  return candidates
 }
 
 function hydratePortPlanAssignmentsForDevice(args: {
@@ -1805,11 +2179,18 @@ function hydratePortPlanAssignmentsForDevice(args: {
     return
   }
 
-  const selectedProfile = matches[0]
+  const selectedMatch = matches[0]
+  const selectedProfile = selectedMatch.profile
   if (
     matches.length > 1
     && matches[1]
-    && matches[1].matchKey.length === selectedProfile.matchKey.length
+    && !shouldSuppressEquivalentAliasWarning({
+      deviceName,
+      strongestProfile: selectedProfile,
+      secondProfile: matches[1].profile,
+    })
+    && matches[1].score === selectedMatch.score
+    && matches[1].profile.matchKey.length === selectedProfile.matchKey.length
   ) {
     state.warnings.push(
       `Multiple workbook-derived port plan profiles matched device ${deviceName}; selected '${selectedProfile.title}' using longest-key precedence.`,
