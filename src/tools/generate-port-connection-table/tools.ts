@@ -8,6 +8,10 @@ import { buildPortConnectionTableArtifact } from "../../artifacts"
 import { normalizeSolutionToolInput } from "../../normalizers"
 import { createSolutionSliceToolArgs } from "../solution-slice-tool-args"
 import { validateCloudSolutionModel } from "../../validators"
+import {
+  buildPendingConfirmationBlockMessage,
+  collectRelevantPendingConfirmationItems,
+} from "../../hooks/shared/export-guard-helpers"
 
 function ensureArtifactRequest(
   sliceInput: CloudSolutionSliceInput,
@@ -32,6 +36,14 @@ export function createGeneratePortConnectionTableTools(): Record<string, ToolDef
       "Validate a minimal cloud-solution connectivity model and generate a deterministic port connection table artifact.",
     args: createSolutionSliceToolArgs(),
     execute: async (inputArgs) => {
+      const pendingConfirmationItems = collectRelevantPendingConfirmationItems({
+        toolName: "generate_port_connection_table",
+        input: inputArgs as Record<string, unknown>,
+      })
+      if (pendingConfirmationItems.length > 0) {
+        throw new Error(buildPendingConfirmationBlockMessage(pendingConfirmationItems))
+      }
+
       const parsedInput = normalizeSolutionToolInput(inputArgs)
       const sliceInput = ensureArtifactRequest(parsedInput, "device-port-connection-table")
       const issues = validateCloudSolutionModel(sliceInput)

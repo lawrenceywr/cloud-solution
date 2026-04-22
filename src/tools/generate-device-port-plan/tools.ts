@@ -8,6 +8,10 @@ import { buildDevicePortPlanArtifact } from "../../artifacts"
 import { normalizeSolutionToolInput } from "../../normalizers"
 import { createSolutionSliceToolArgs } from "../solution-slice-tool-args"
 import { validateCloudSolutionModel } from "../../validators"
+import {
+  buildPendingConfirmationBlockMessage,
+  collectRelevantPendingConfirmationItems,
+} from "../../hooks/shared/export-guard-helpers"
 
 function ensureArtifactRequest(
   sliceInput: CloudSolutionSliceInput,
@@ -32,6 +36,14 @@ export function createGenerateDevicePortPlanTools(): Record<string, ToolDefiniti
       "Validate a physical cloud-solution model and generate a deterministic device port plan artifact.",
     args: createSolutionSliceToolArgs(),
     execute: async (inputArgs) => {
+      const pendingConfirmationItems = collectRelevantPendingConfirmationItems({
+        toolName: "generate_device_port_plan",
+        input: inputArgs as Record<string, unknown>,
+      })
+      if (pendingConfirmationItems.length > 0) {
+        throw new Error(buildPendingConfirmationBlockMessage(pendingConfirmationItems))
+      }
+
       const parsedInput = normalizeSolutionToolInput(inputArgs)
       const sliceInput = ensureArtifactRequest(parsedInput, "device-port-plan")
       const issues = validateCloudSolutionModel(sliceInput)

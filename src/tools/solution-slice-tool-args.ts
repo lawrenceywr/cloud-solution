@@ -248,6 +248,27 @@ const structuredInputSchema = tool.schema.object({
   allocations: tool.schema.array(structuredAllocationSchema).default([]),
 })
 
+const pendingConfirmationEndpointSchema = tool.schema.object({
+  deviceName: tool.schema.string(),
+  portName: tool.schema.string(),
+})
+
+const pendingConfirmationItemSchema = tool.schema.object({
+  id: tool.schema.string(),
+  kind: tool.schema.enum(["template-plane-type-conflict"]),
+  severity: tool.schema.enum(["warning", "informational"]).default("warning"),
+  title: tool.schema.string(),
+  detail: tool.schema.string(),
+  subjectType: tool.schema.literal("link").default("link"),
+  subjectId: tool.schema.string().optional(),
+  confidenceState: confidenceStateSchema.default("unresolved"),
+  entityRefs: tool.schema.array(tool.schema.string()).default([]),
+  sourceRefs: tool.schema.array(sourceReferenceSchema).default([]),
+  endpointA: pendingConfirmationEndpointSchema.optional(),
+  endpointB: pendingConfirmationEndpointSchema.optional(),
+  suggestedAction: tool.schema.string().optional(),
+})
+
 export function createSolutionSliceToolArgs(): ToolDefinition["args"] {
   return {
     requirement: requirementSchema.describe(
@@ -280,5 +301,9 @@ export function createSolutionSliceToolArgs(): ToolDefinition["args"] {
     structuredInput: structuredInputSchema
       .optional()
       .describe("Optional structured input that will be normalized into the canonical planning slice before validation."),
+    pendingConfirmationItems: tool.schema
+      .array(pendingConfirmationItemSchema)
+      .default([])
+      .describe("Optional machine-readable pending-confirmation items that keep importer ambiguity explicit across draft and review workflows."),
   }
 }

@@ -3,7 +3,12 @@ import path from "node:path"
 import { z } from "zod"
 
 import type { CloudSolutionConfig } from "../config"
-import { SolutionRequirementSchema, SourceReferenceSchema } from "../domain"
+import type { PendingConfirmationItem } from "../domain"
+import {
+  PendingConfirmationItemSchema,
+  SolutionRequirementSchema,
+  SourceReferenceSchema,
+} from "../domain"
 import type { WorkerRuntimeContext } from "../coordinator/types"
 import { StructuredSolutionInputSchema } from "../normalizers/normalize-structured-solution-input"
 import { prepareDocumentSourcesAsMarkdown } from "./document-source-markdown"
@@ -75,6 +80,7 @@ type TemplateAdapterState = {
   inventoryProfiles: InventoryProfile[]
   parameterPowerProfiles: ParameterPowerProfile[]
   warnings: string[]
+  pendingConfirmationItems: PendingConfirmationItem[]
 }
 
 type PortPlanPortCategory =
@@ -147,6 +153,11 @@ type MarkdownSection = {
   title: string
   body: string
 }
+
+type ExplicitPlanePortType = Extract<
+  MutableLink["linkType"],
+  Exclude<MutablePort["portType"], undefined>
+>
 
 type ScoredProfileMatch<T extends { title: string, matchKey: string }> = {
   profile: T
@@ -1839,7 +1850,22 @@ function createTemplateAdapterState(): TemplateAdapterState {
     warnings: [
       "Rack layout import currently defaults device rackUnitHeight to 1U when workbook markdown does not preserve merged-cell height.",
     ],
+    pendingConfirmationItems: [],
   }
+}
+
+function buildPendingConfirmationId(args: {
+  kind: PendingConfirmationItem["kind"]
+  endpointADeviceName: string
+  endpointAPortName: string
+  endpointBDeviceName: string
+  endpointBPortName: string
+}): string {
+  return [
+    args.kind,
+    `${args.endpointADeviceName}:${args.endpointAPortName}`,
+    `${args.endpointBDeviceName}:${args.endpointBPortName}`,
+  ].join("|")
 }
 
 function upsertRack(
@@ -2287,6 +2313,103 @@ function resolveTemplatePortName(args: {
   })
 }
 
+function getResolvedTemplatePort(args: {
+  state: TemplateAdapterState
+  deviceName: string
+  portName: string
+}): MutablePort | undefined {
+  return args.state.devices.get(args.deviceName)?.ports.get(args.portName)
+}
+
+function isExplicitPlanePortType(
+  portType: MutablePort["portType"],
+): portType is ExplicitPlanePortType {
+  switch (portType) {
+    case "business":
+    case "storage":
+    case "inband-mgmt":
+    case "oob-mgmt":
+    case "uplink":
+    case "peer-link":
+      return true
+    default:
+      return false
+  }
+}
+
+function reconcileTemplateLinkBinding(args: {
+  state: TemplateAdapterState
+  semantics: TemplateSemantics
+  endpointADeviceName: string
+  endpointAPortName: string
+  endpointBDeviceName: string
+  endpointBPortName: string
+}): Pick<MutableLink, "linkType"> {
+  const resolvedEndpointAPort = getResolvedTemplatePort({
+    state: args.state,
+    deviceName: args.endpointADeviceName,
+    portName: args.endpointAPortName,
+  })
+  const resolvedEndpointBPort = getResolvedTemplatePort({
+    state: args.state,
+    deviceName: args.endpointBDeviceName,
+    portName: args.endpointBPortName,
+  })
+  const endpointAPlaneType = resolvedEndpointAPort?.portType
+  const endpointBPlaneType = resolvedEndpointBPort?.portType
+
+  if (args.semantics.purpose === "template-inter-switch") {
+    const sharedPlaneType = resolvedEndpointAPort?.portType
+    if (isExplicitPlanePortType(sharedPlaneType) && sharedPlaneType === resolvedEndpointBPort?.portType) {
+      return { linkType: sharedPlaneType }
+    }
+  }
+
+  if (
+    args.semantics.purpose === "template-server-business-storage"
+    && !!resolvedEndpointAPort
+    && !!resolvedEndpointBPort
+    && isExplicitPlanePortType(endpointAPlaneType)
+    && isExplicitPlanePortType(endpointBPlaneType)
+    && endpointAPlaneType !== endpointBPlaneType
+  ) {
+    const detail = `Workbook-derived link ${args.endpointADeviceName}:${args.endpointAPortName} ↔ ${args.endpointBDeviceName}:${args.endpointBPortName} resolved conflicting explicit plane types (${endpointAPlaneType} vs ${endpointBPlaneType}); preserving this connection as ambiguous and requiring project confirmation.`
+    args.state.warnings.push(detail)
+    args.state.pendingConfirmationItems.push(PendingConfirmationItemSchema.parse({
+      id: buildPendingConfirmationId({
+        kind: "template-plane-type-conflict",
+        endpointADeviceName: args.endpointADeviceName,
+        endpointAPortName: args.endpointAPortName,
+        endpointBDeviceName: args.endpointBDeviceName,
+        endpointBPortName: args.endpointBPortName,
+      }),
+      kind: "template-plane-type-conflict",
+      severity: "warning",
+      title: "template plane type conflict requires confirmation",
+      detail,
+      confidenceState: "unresolved",
+      endpointA: {
+        deviceName: args.endpointADeviceName,
+        portName: args.endpointAPortName,
+      },
+      endpointB: {
+        deviceName: args.endpointBDeviceName,
+        portName: args.endpointBPortName,
+      },
+      sourceRefs: mergeSourceRefs([], [
+        ...resolvedEndpointAPort.sourceRefs,
+        ...resolvedEndpointBPort.sourceRefs,
+      ]),
+      suggestedAction: "Confirm whether this workbook-derived connection should be modeled as a business or storage link before export.",
+    }))
+    resolvedEndpointAPort.portType = undefined
+    resolvedEndpointBPort.portType = undefined
+    return { linkType: undefined }
+  }
+
+  return { linkType: args.semantics.linkType }
+}
+
 function parseCablingWorkbook(args: {
   markdown: string
   sourceRef: TemplateSourceRef
@@ -2343,6 +2466,14 @@ function parseCablingWorkbook(args: {
         sourceRef,
         purpose: semantics.purpose,
       })
+      const reconciledLink = reconcileTemplateLinkBinding({
+        state,
+        semantics,
+        endpointADeviceName,
+        endpointAPortName,
+        endpointBDeviceName,
+        endpointBPortName,
+      })
 
       state.links.push({
         endpointA: {
@@ -2354,7 +2485,7 @@ function parseCablingWorkbook(args: {
           portName: endpointBPortName,
         },
         purpose: semantics.purpose,
-        linkType: semantics.linkType,
+        linkType: reconciledLink.linkType,
         cableId: cleanCell(row[0]),
         cableName: cleanCell(row[1]) || undefined,
         cableSpec: cleanCell(row[2]) || undefined,
@@ -2674,12 +2805,16 @@ export async function runExtractStructuredInputFromTemplates(args: {
   synthesizeGeneratedPlacements(state)
 
   const structuredInput = buildStructuredInput(state)
+  const pendingConfirmationItems = state.pendingConfirmationItems
+    .slice()
+    .sort((left, right) => left.id.localeCompare(right.id))
 
   return {
     requirement: parsedInput.requirement,
     draftInput: {
       requirement: parsedInput.requirement,
       structuredInput,
+      pendingConfirmationItems,
     },
     warnings: uniqueStrings([
       ...supportSourceDiscovery.warnings,

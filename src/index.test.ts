@@ -107,6 +107,21 @@ function createPhysicalRuntimeInput() {
   }
 }
 
+function createPendingConfirmationItem() {
+  return {
+    id: "template-plane-type-conflict|switch-a:eth0|server-a:eth1",
+    kind: "template-plane-type-conflict" as const,
+    severity: "warning" as const,
+    title: "template plane type conflict requires confirmation",
+    detail:
+      "Workbook-derived link switch-a:eth0 ↔ server-a:eth1 resolved conflicting explicit plane types (storage vs business); preserving this connection as ambiguous and requiring project confirmation.",
+    subjectType: "link" as const,
+    confidenceState: "unresolved" as const,
+    entityRefs: [],
+    sourceRefs: [{ kind: "user-input" as const, ref: "structured-input" }],
+  }
+}
+
 function createStructuredRuntimeInput() {
   return {
     requirement: {
@@ -1000,6 +1015,21 @@ describe("createCloudSolutionRuntime", () => {
         args: fixture,
       }),
     ).rejects.toThrow("Artifact generation is blocked by validation issues")
+  })
+
+  test("rejects runtime physical artifact generation when pending confirmation items remain", async () => {
+    const runtime = createCloudSolutionRuntime(process.cwd())
+
+    await expect(
+      runtime.kernel.invokeTool({
+        toolName: "generate_device_cabling_table",
+        sessionID: "runtime-device-cabling-pending-confirmation",
+        args: {
+          ...createPhysicalRuntimeInput(),
+          pendingConfirmationItems: [createPendingConfirmationItem()],
+        },
+      }),
+    ).rejects.toThrow("Artifact generation requires review before export")
   })
 
   test("invokes validation through the runtime kernel with structured input", async () => {

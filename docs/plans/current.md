@@ -55,13 +55,19 @@
 - [x] defaulted missing rack power to `7kW`
 - [x] preserved imported/defaulted rack and device facts as inferred draft data so downstream confirmation/validation still gates final artifacts
 
+### E. Structured Pending Confirmation and Direct Artifact Guarding
+
+- [x] promoted workbook-derived plane-type conflicts into schema-backed `pendingConfirmationItems`
+- [x] preserved those pending-confirmation items across draft preparation, orchestrated review, agent handoff, and bundle review output
+- [x] blocked direct physical artifact generation when relevant pending-confirmation ambiguity remains, so review gating cannot be bypassed by ready-looking final tables
+
 ---
 
 ## Next Focus
 
 1. Reduce the remaining non-TOR real-template blockers so the next quality run is dominated by true confirmation gaps rather than importer matching gaps.
-2. Turn more physical facts from “inferred but structurally present” into “ready for explicit confirmation” instead of leaving them as absent gaps.
-3. Re-run broader real-template quality checks until the remaining validation issues are mostly confirmation or threshold decisions, not parser ambiguity.
+2. Turn the current structured pending-confirmation items into more operator-friendly explicit confirmation packets instead of leaving them as warning-adjacent metadata.
+3. Re-run broader real-template quality checks until the remaining validation issues are mostly confirmation or threshold decisions, not parser ambiguity or review-path drift.
 
 ---
 
@@ -75,7 +81,7 @@
 
 ### Verification Evidence
 
-- `bun test` → passing (`317 pass / 0 fail`)
+- `bun test` → passing (`360 pass / 0 fail`)
 - `bun run typecheck` → passing
 - `bun run build` → passing
 - manual QA 1: workbook-derived endpoint ports now appear in `structuredInput` (for example `3/0`, `1/1`, `2/49`) instead of synthetic placeholders
@@ -84,3 +90,5 @@
 - manual QA 4: real-template roundtrip through `draft_topology_model` no longer hits `duplicate_device_id`
 - manual QA 5: the checked-in real bundle no longer reports firewall / SDN gateway / TOR alias warnings, and `核心区-千兆带外管理TOR-H3C S5560X-54C-EI-1` now binds uplinks to workbook ports `1/49` and `1/50`
 - targeted verification update: `bun test "src/features/extract-structured-input-from-templates.test.ts"` → passing (`35 pass / 0 fail`), `bun run typecheck` → passing, `bun run build` → passing, real-bundle replay → `TOR warning count = 0`
+- targeted verification update: real-template replay now reports `plane_link_port_type_mismatch = 0`, `extract_pending_confirmation_items = 4`, `draft_pending_confirmation_items = 4`, and `handoff_unresolved_rows = 4`
+- targeted verification update: direct physical artifact generation now rejects relevant pending-confirmation ambiguity instead of emitting ready-looking final artifacts outside the review path

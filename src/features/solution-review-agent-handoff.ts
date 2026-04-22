@@ -420,9 +420,17 @@ export async function runSolutionReviewAgentHandoff(args: {
       allocations: preparedInput.normalizedInput.allocations,
       racks: preparedInput.normalizedInput.racks,
     })
+    const workflowInput = {
+      ...preparedInput.normalizedInput,
+      ...(preparedInput.confirmationSummary.pendingConfirmationItems?.length
+        ? {
+            pendingConfirmationItems: preparedInput.confirmationSummary.pendingConfirmationItems,
+          }
+        : {}),
+    }
     
     const initialWorkflow = runSolutionReviewWorkflow({
-      input: preparedInput.normalizedInput,
+      input: workflowInput,
       mode: "export",
       pluginConfig: args.pluginConfig,
       includeBundleWhenNotExportReady: false,
@@ -447,7 +455,7 @@ export async function runSolutionReviewAgentHandoff(args: {
       workerResult: coordinatorResult.aggregatedOutput["evidence-reconciliation"],
     })
     const workflow = runSolutionReviewWorkflow({
-      input: preparedInput.normalizedInput,
+      input: workflowInput,
       mode: "export",
       pluginConfig: args.pluginConfig,
       includeBundleWhenNotExportReady: false,

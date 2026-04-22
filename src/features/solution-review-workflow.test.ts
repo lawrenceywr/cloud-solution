@@ -120,4 +120,105 @@ describe("runSolutionReviewWorkflow", () => {
     expect(result.workflowState).toBe("blocked")
     expect(result.validationSummary.valid).toBe(false)
   })
+
+  test("surfaces raw pending confirmation items as review unresolved items", () => {
+    const documentSource = {
+      kind: "document" as const,
+      ref: "fixtures/cabling-template.xlsx",
+      note: "Cable planning template",
+    }
+
+    const result = evaluateSolutionReviewWorkflow({
+      input: {
+        requirement: {
+          id: "req-review-pending-confirmation-1",
+          projectName: "Review Pending Confirmation Example",
+          scopeType: "data-center",
+          artifactRequests: ["device-cabling-table"],
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+        structuredInput: {
+          racks: [
+            {
+              name: "rack-a",
+              row: "A",
+              uHeight: 42,
+              maxPowerKw: 7,
+              sourceRefs: [documentSource],
+              statusConfidence: "confirmed",
+            },
+          ],
+          devices: [
+            {
+              name: "server-a",
+              role: "server",
+              rackName: "rack-a",
+              rackPosition: 10,
+              rackUnitHeight: 2,
+              sourceRefs: [documentSource],
+              statusConfidence: "confirmed",
+              ports: [
+                {
+                  name: "3/0",
+                  sourceRefs: [documentSource],
+                  statusConfidence: "confirmed",
+                },
+              ],
+            },
+            {
+              name: "switch-a",
+              role: "switch",
+              rackName: "rack-a",
+              rackPosition: 1,
+              rackUnitHeight: 1,
+              sourceRefs: [documentSource],
+              statusConfidence: "confirmed",
+              ports: [
+                {
+                  name: "1/1",
+                  sourceRefs: [documentSource],
+                  statusConfidence: "confirmed",
+                },
+              ],
+            },
+          ],
+          links: [
+            {
+              endpointA: { deviceName: "server-a", portName: "3/0" },
+              endpointB: { deviceName: "switch-a", portName: "1/1" },
+              sourceRefs: [documentSource],
+              statusConfidence: "confirmed",
+            },
+          ],
+          segments: [],
+          allocations: [],
+        },
+        pendingConfirmationItems: [
+          {
+            id: "template-plane-type-conflict|server-a:3/0|switch-a:1/1",
+            kind: "template-plane-type-conflict",
+            title: "template plane type conflict requires confirmation",
+            detail: "Workbook-derived link server-a:3/0 ↔ switch-a:1/1 resolved conflicting explicit plane types (storage vs business); preserving this connection as ambiguous and requiring project confirmation.",
+            confidenceState: "unresolved",
+            endpointA: { deviceName: "server-a", portName: "3/0" },
+            endpointB: { deviceName: "switch-a", portName: "1/1" },
+            sourceRefs: [documentSource],
+          },
+        ],
+      },
+      mode: "review",
+    })
+
+    expect(result.workflowState).toBe("review_required")
+    expect(result.reviewSummary.unresolvedItemCount).toBe(1)
+    expect(result.reviewSummary.unresolvedItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: "template plane type conflict requires confirmation",
+          confidenceState: "unresolved",
+        }),
+      ]),
+    )
+  })
 })

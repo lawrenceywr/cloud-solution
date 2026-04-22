@@ -79,6 +79,21 @@ function createPhysicalToolInput() {
   }
 }
 
+function createPendingConfirmationItem() {
+  return {
+    id: "template-plane-type-conflict|switch-a:eth0|server-a:eth1",
+    kind: "template-plane-type-conflict" as const,
+    severity: "warning" as const,
+    title: "template plane type conflict requires confirmation",
+    detail:
+      "Workbook-derived link switch-a:eth0 ↔ server-a:eth1 resolved conflicting explicit plane types (storage vs business); preserving this connection as ambiguous and requiring project confirmation.",
+    subjectType: "link" as const,
+    confidenceState: "unresolved" as const,
+    entityRefs: [],
+    sourceRefs: [{ kind: "user-input" as const, ref: "structured-input" }],
+  }
+}
+
 function createStructuredPhysicalToolInput() {
   return {
     requirement: {
@@ -1226,6 +1241,29 @@ describe("createTools", () => {
     expect(parsed.artifact.name).toBe("device-cabling-table.md")
     expect(parsed.artifact.content).toContain("Status: ready")
     expect(parsed.artifact.content).toContain("rack-a (rack-a) U1")
+  })
+
+  test("generate_device_cabling_table rejects pending confirmation ambiguity", async () => {
+    const config = loadPluginConfig(process.cwd())
+    const managers = createManagers({
+      context: { directory: process.cwd() },
+      pluginConfig: config,
+    })
+
+    const tools = createTools({
+      pluginConfig: config,
+      managers,
+    })
+
+    await expect(
+      tools.generate_device_cabling_table.execute(
+        {
+          ...createPhysicalToolInput(),
+          pendingConfirmationItems: [createPendingConfirmationItem()],
+        },
+        createTestToolContext({ sessionID: "tool-test-session" }),
+      ),
+    ).rejects.toThrow("Artifact generation requires review before export")
   })
 
   test("registers generate_device_port_plan tool", async () => {

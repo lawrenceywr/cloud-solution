@@ -3,6 +3,7 @@ import type {
   ConfidenceState,
   Conflict,
   DesignGapSummary,
+  PendingConfirmationItem,
   DesignReviewItemRow,
   SourceReference,
   ValidationIssue,
@@ -150,13 +151,36 @@ function buildAssumptionRows(input: CloudSolutionSliceInput) {
     .sort(compareRows)
 }
 
+function buildPendingConfirmationRows(items: PendingConfirmationItem[]) {
+  return items
+    .map((item): DesignReviewItemRow => ({
+      kind: "unresolved-item",
+      severity: item.severity,
+      subjectType: item.subjectType,
+      subjectId: item.subjectId ?? item.id,
+      title: item.title,
+      detail: item.detail,
+      confidenceState: item.confidenceState,
+      entityRefs: item.entityRefs,
+      sourceRefs: item.sourceRefs,
+    }))
+    .sort(compareRows)
+}
+
 export function buildDesignGapReport(args: {
   input: CloudSolutionSliceInput
   issues: ValidationIssue[]
   relevantSubjectTypes?: ValidationIssueSubjectType[]
   conflicts?: Conflict[]
+  pendingConfirmationItems?: PendingConfirmationItem[]
 }): DesignGapSummary {
-  const { input, issues, relevantSubjectTypes, conflicts = [] } = args
+  const {
+    input,
+    issues,
+    relevantSubjectTypes,
+    conflicts = [],
+    pendingConfirmationItems = [],
+  } = args
   const relevantSubjectTypeSet = relevantSubjectTypes
     ? new Set(relevantSubjectTypes)
     : undefined
@@ -170,6 +194,8 @@ export function buildDesignGapReport(args: {
     ...issueRows.unresolvedItems,
     ...buildAssumptionRows(input)
       .filter((row) => row.kind === "unresolved-item")
+      .filter((row) => !relevantSubjectTypeSet || relevantSubjectTypeSet.has(row.subjectType)),
+    ...buildPendingConfirmationRows(pendingConfirmationItems)
       .filter((row) => !relevantSubjectTypeSet || relevantSubjectTypeSet.has(row.subjectType)),
   ].sort(compareRows)
   const reviewRequired =

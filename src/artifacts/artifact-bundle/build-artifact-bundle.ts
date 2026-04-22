@@ -3,6 +3,7 @@ import type {
   ArtifactType,
   CloudSolutionSliceInput,
   GeneratedArtifact,
+  PendingConfirmationItem,
   ValidationIssue,
   ValidationIssueSubjectType,
   ValidationSummary,
@@ -92,8 +93,13 @@ function buildRequestedArtifacts(args: {
 export function buildArtifactBundleExport(args: {
   input: CloudSolutionSliceInput
   issues: ValidationIssue[]
+  pendingConfirmationItems?: PendingConfirmationItem[]
 }): ArtifactBundleExport {
-  const { input, issues } = args
+  const {
+    input,
+    issues,
+    pendingConfirmationItems = [],
+  } = args
   const validationSummary = buildValidationSummary(issues)
   const requestedArtifactTypes = artifactOrder.filter((artifactType) =>
     input.requirement.artifactRequests.includes(artifactType),
@@ -102,6 +108,7 @@ export function buildArtifactBundleExport(args: {
     input,
     issues,
     relevantSubjectTypes: getRelevantSubjectTypes(requestedArtifactTypes),
+    pendingConfirmationItems,
   })
   const requestedArtifacts = buildRequestedArtifacts({
     requestedArtifactTypes,

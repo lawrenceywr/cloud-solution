@@ -643,4 +643,94 @@ describe("runSolutionReviewAgentHandoff", () => {
       suggestions: [],
     })
   })
+
+  test("preserves pending confirmation items through the orchestrated review path", async () => {
+    const pluginConfig = loadPluginConfig(process.cwd())
+    const baseInput = createScn01SingleRackConnectivityFixture()
+    const link = baseInput.links[0]!
+    const endpointAPort = baseInput.ports.find((port) => port.id === link.endpointA.portId)!
+    const endpointBPort = baseInput.ports.find((port) => port.id === link.endpointB.portId)!
+    const endpointADevice = baseInput.devices.find((device) => device.id === endpointAPort.deviceId)!
+    const endpointBDevice = baseInput.devices.find((device) => device.id === endpointBPort.deviceId)!
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "requirements-clarification",
+          status: "success",
+          output: {
+            missingFields: [],
+            clarificationQuestions: [],
+            suggestions: [],
+          },
+          recommendations: ["输入完整，无需澄清"],
+        }),
+        JSON.stringify({
+          workerId: "evidence-reconciliation",
+          status: "success",
+          output: {
+            conflicts: [],
+            reconciliationWarnings: [],
+          },
+          recommendations: ["未发现证据冲突，可以继续方案评审"],
+        }),
+        JSON.stringify({
+          workerId: "solution-review-assistant",
+          status: "success",
+          output: {
+            finalResponse: "Pending template plane-type conflicts still require review before export.",
+            nextActions: ["review_pending_confirmation_items"],
+          },
+          recommendations: ["review_pending_confirmation_items"],
+        }),
+      ],
+    })
+
+    const result = await runSolutionReviewAgentHandoff({
+      input: {
+        ...baseInput,
+        pendingConfirmationItems: [
+          {
+            id: `template-plane-type-conflict|${endpointADevice.name}:${endpointAPort.name}|${endpointBDevice.name}:${endpointBPort.name}`,
+            kind: "template-plane-type-conflict",
+            title: "template plane type conflict requires confirmation",
+            detail: `Workbook-derived link ${endpointADevice.name}:${endpointAPort.name} ↔ ${endpointBDevice.name}:${endpointBPort.name} resolved conflicting explicit plane types (storage vs business); preserving this connection as ambiguous and requiring project confirmation.`,
+            severity: "warning",
+            confidenceState: "unresolved",
+            subjectType: "link",
+            subjectId: link.id,
+            entityRefs: [`link:${link.id}`, `port:${endpointAPort.id}`, `port:${endpointBPort.id}`],
+            endpointA: { deviceName: endpointADevice.name, portName: endpointAPort.name },
+            endpointB: { deviceName: endpointBDevice.name, portName: endpointBPort.name },
+            sourceRefs: [{ kind: "user-input" as const, ref: "structured-input" }],
+          },
+        ],
+      },
+      pluginConfig,
+      runtime: {
+        client,
+        parentSessionID: "handoff-parent-session",
+        agent: "cloud-solution-test",
+        directory: process.cwd(),
+        worktree: process.cwd(),
+        abort: new AbortController().signal,
+      },
+    })
+
+    expect(result.orchestrationState).toBe("review_required")
+    expect(result.reviewSummary?.unresolvedItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: "template plane type conflict requires confirmation",
+          confidenceState: "unresolved",
+        }),
+      ]),
+    )
+    expect(result.confirmationSummary.pendingConfirmationItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: "template plane type conflict requires confirmation",
+        }),
+      ]),
+    )
+  })
 })

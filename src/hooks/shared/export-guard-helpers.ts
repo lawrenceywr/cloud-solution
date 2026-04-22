@@ -3,7 +3,10 @@ import type {
   ArtifactType,
   CloudSolutionSliceInput,
   DesignGapSummary,
+  PendingConfirmationItem,
+  ValidationIssueSubjectType,
 } from "../../domain"
+import { PendingConfirmationItemSchema } from "../../domain"
 import { evaluateSolutionReviewWorkflow } from "../../features/solution-review-workflow"
 import { normalizeSolutionToolInput } from "../../normalizers"
 import type { ToolExecuteBeforeOutput } from "../../plugin/types"
@@ -132,4 +135,42 @@ export function collectBlockingIssueCodes(sliceInput: CloudSolutionSliceInput): 
 export function hasLowConfidenceReviewItems(reviewSummary: DesignGapSummary): boolean {
   return reviewSummary.assumptionCount > 0
     || reviewSummary.unresolvedItems.some((item) => item.confidenceState === "unresolved")
+}
+
+function getRelevantSubjectTypesForArtifactType(artifactType: ArtifactType): Set<ValidationIssueSubjectType> {
+  if (artifactType === "ip-allocation-table") {
+    return new Set<ValidationIssueSubjectType>(["requirement", "device", "segment", "allocation"])
+  }
+
+  return new Set<ValidationIssueSubjectType>(["requirement", "device", "rack", "port", "link"])
+}
+
+function extractPendingConfirmationItems(input: Record<string, unknown>): PendingConfirmationItem[] {
+  const rawItems = [
+    ...(Array.isArray(input.pendingConfirmationItems) ? input.pendingConfirmationItems : []),
+    ...(isRecord(input.confirmationSummary) && Array.isArray(input.confirmationSummary.pendingConfirmationItems)
+      ? input.confirmationSummary.pendingConfirmationItems
+      : []),
+  ]
+
+  return rawItems.map((item) => PendingConfirmationItemSchema.parse(item))
+}
+
+export function collectRelevantPendingConfirmationItems(args: {
+  toolName: string
+  input: Record<string, unknown>
+}): PendingConfirmationItem[] {
+  const artifactType = ArtifactGenerationToolTypes[args.toolName]
+  if (!artifactType) {
+    return []
+  }
+
+  const relevantSubjectTypes = getRelevantSubjectTypesForArtifactType(artifactType)
+  return extractPendingConfirmationItems(args.input)
+    .filter((item) => relevantSubjectTypes.has(item.subjectType))
+}
+
+export function buildPendingConfirmationBlockMessage(items: PendingConfirmationItem[]): string {
+  const titles = [...new Set(items.map((item) => item.title))]
+  return `Artifact generation requires review before export: ${titles.join(", ")}`
 }

@@ -1,13 +1,13 @@
 # Progress Snapshot
 
-**Last Updated:** 2026-04-20  
+**Last Updated:** 2026-04-23  
 **Status:** MVP Complete → Post-roadmap real-template physical import deepening in progress
 
 ---
 
 ## Current Stage
 
-✅ **Post-roadmap template-import deepening in progress** - SCN-08 foundation, workbook-driven port placement, device power import, rack defaults, and model-first real-template matching for the remaining firewall / gateway / TOR families are now landed on `dev`; the next focus is reducing the remaining non-confirmed physical blockers after importer-caused warning noise has been pushed down.
+✅ **Post-roadmap template-import deepening in progress** - SCN-08 foundation, workbook-driven port placement, device power import, rack defaults, model-first real-template matching for the remaining firewall / gateway / TOR families, and machine-readable pending-confirmation surfacing for workbook plane-type ambiguity are now landed on `dev`; the next focus is reducing the remaining non-confirmed physical blockers now that importer-caused plane ambiguity is both explicit and review-gated.
 
 ✅ **Current Status:** all roadmap phases through Phase 10 remain complete, and the active post-roadmap work is now deterministic real-template import quality deepening rather than guardrail hardening.
 
@@ -31,11 +31,14 @@
 - ✅ automated regression coverage now locks the workbook-markdown parser against real checked-in sheet shapes (including duplicated rack-power headers like `7kw.1`), while real workbook conversion remains manually verified through MarkItDown
 - ✅ workbook profile matching now prefers normalized model identifiers, role hints, scope hints, and explicit `-1 / -2` instance binding for the remaining real-template firewall / gateway / TOR families
 - ✅ the checked-in real bundle now resolves the previously noisy TOR aliases without residual TOR warnings, and core-area out-of-band TOR uplinks now bind to workbook ports `49-50` instead of synthesized placeholders
+- ✅ workbook-derived business / storage plane conflicts now surface as schema-backed `pendingConfirmationItems` instead of only warning strings
+- ✅ those pending-confirmation items now propagate through draft preparation, orchestrated review, agent handoff, and bundle review summaries
 
 ### Guardrail Hooks & SCN-07 (NEW ✅)
 - ✅ 4 new pre-execution hooks now exist: `missing-required-input-guard`, `artifact-generation-precheck`, `low-confidence-export-guard`, and `assumption-review-reminder`
 - ✅ runtime tool execution now reuses shared `blocked` / `review_required` / `export_ready` semantics before artifact/export tool execution proceeds
 - ✅ `SCN-07` now proves low-confidence export attempts are rejected, incomplete export attempts are rejected, and clean confirmed export still succeeds
+- ✅ direct physical artifact tools now refuse generation when relevant `pendingConfirmationItems` remain, closing the bypass around review/bundle gating
 
 ### MCP Advisory Source Ingestion (NEW ✅)
 - ✅ `extract_document_candidate_facts` can now pull advisory external evidence from approved `inventory` / `system` requirement source refs through a configured MCP tool

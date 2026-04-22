@@ -8,6 +8,10 @@ import { buildDeviceRackLayoutArtifact } from "../../artifacts"
 import { normalizeSolutionToolInput } from "../../normalizers"
 import { createSolutionSliceToolArgs } from "../solution-slice-tool-args"
 import { validateCloudSolutionModel } from "../../validators"
+import {
+  buildPendingConfirmationBlockMessage,
+  collectRelevantPendingConfirmationItems,
+} from "../../hooks/shared/export-guard-helpers"
 
 function ensureArtifactRequest(
   sliceInput: CloudSolutionSliceInput,
@@ -32,6 +36,14 @@ export function createGenerateDeviceRackLayoutTools(): Record<string, ToolDefini
       "Validate a physical cloud-solution model and generate a deterministic device rack layout artifact.",
     args: createSolutionSliceToolArgs(),
     execute: async (inputArgs) => {
+      const pendingConfirmationItems = collectRelevantPendingConfirmationItems({
+        toolName: "generate_device_rack_layout",
+        input: inputArgs as Record<string, unknown>,
+      })
+      if (pendingConfirmationItems.length > 0) {
+        throw new Error(buildPendingConfirmationBlockMessage(pendingConfirmationItems))
+      }
+
       const parsedInput = normalizeSolutionToolInput(inputArgs)
       const sliceInput = ensureArtifactRequest(parsedInput, "device-rack-layout")
       const issues = validateCloudSolutionModel(sliceInput)
