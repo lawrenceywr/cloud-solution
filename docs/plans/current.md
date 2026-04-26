@@ -18,6 +18,7 @@
 - make project-bound port-plan workbooks drive actual endpoint port placement
 - make project-bound inventory + parameter-response workbooks drive `powerWatts`
 - default rack metadata to `48U` / `7kW` when explicit values are absent while keeping those defaults inferred
+- surface unresolved template-derived pending confirmations as operator-facing confirmation packets without treating them as resolved facts
 
 **Out of Scope:**
 - memory / experience layer work
@@ -48,6 +49,7 @@
 - [x] supported project-specific device-name variation and `A设备/B设备 -> A01/B01` parity mapping
 - [x] reduced remaining real-bundle profile ambiguity for firewall, SDN gateway, and TOR families with model-first matching plus stronger role/scope/instance scoring
 - [x] made core-area out-of-band TOR uplinks consume workbook uplink ports `49-50`, eliminating the last residual TOR warning in the checked-in real bundle
+- [x] made management-domain M9000-CN04 firewall peer links consume workbook-derived `内部RBM互联` ports instead of falling back to synthesized peer-link names
 
 ### D. Rack Defaults with Confirmation-Friendly Semantics
 
@@ -61,13 +63,19 @@
 - [x] preserved those pending-confirmation items across draft preparation, orchestrated review, agent handoff, and bundle review output
 - [x] blocked direct physical artifact generation when relevant pending-confirmation ambiguity remains, so review gating cannot be bypassed by ready-looking final tables
 
+### F. Operator-Friendly Confirmation Packets
+
+- [x] added a deterministic confirmation-packet projection for unresolved pending-confirmation items
+- [x] exposed confirmation packets through design-gap summaries, summarize-design-gaps output, solution-review workflow output, agent briefs, and agent handoff output
+- [x] preserved raw `pendingConfirmationItems` and existing artifact/export guard behavior unchanged; packets are presentation/review aids only, not a confirmation mechanism
+
 ---
 
 ## Next Focus
 
 1. Reduce the remaining non-TOR real-template blockers so the next quality run is dominated by true confirmation gaps rather than importer matching gaps.
-2. Turn the current structured pending-confirmation items into more operator-friendly explicit confirmation packets instead of leaving them as warning-adjacent metadata.
-3. Re-run broader real-template quality checks until the remaining validation issues are mostly confirmation or threshold decisions, not parser ambiguity or review-path drift.
+2. Re-run broader real-template quality checks until the remaining validation issues are mostly confirmation or threshold decisions, not parser ambiguity or review-path drift.
+3. Use the new confirmation packets to drive explicit operator decisions for the remaining true confirmation gaps before broadening importer matching again.
 
 ---
 
@@ -92,3 +100,10 @@
 - targeted verification update: `bun test "src/features/extract-structured-input-from-templates.test.ts"` → passing (`35 pass / 0 fail`), `bun run typecheck` → passing, `bun run build` → passing, real-bundle replay → `TOR warning count = 0`
 - targeted verification update: real-template replay now reports `plane_link_port_type_mismatch = 0`, `extract_pending_confirmation_items = 4`, `draft_pending_confirmation_items = 4`, and `handoff_unresolved_rows = 4`
 - targeted verification update: direct physical artifact generation now rejects relevant pending-confirmation ambiguity instead of emitting ready-looking final artifacts outside the review path
+- targeted verification update: operator-facing confirmation packets now derive only from unresolved `pendingConfirmationItems` and propagate through design-gap summaries, summarize-design-gaps output, review workflow output, solution-review agent briefs, and handoff output while preserving raw pending-confirmation guard semantics
+- targeted verification update: confirmation packet details now render in the human-facing design assumptions/gaps report when packets exist, deterministic assistant fallback includes packet decisions/actions, and older assistant-worker briefs that omit packets remain compatible through an empty default
+- targeted verification update: solution-review agent briefs keep packet decision/action/entity/endpoint details but redact packet `sourceRefs` before child-session handoff, while review summaries and handoff top-level packets retain full provenance for local/programmatic consumers
+- targeted verification update: design assumptions/gaps markdown now escapes project names and confirmation packet fields for HTML-sensitive characters, pipes, and newlines before rendering
+- verification update: `bun test src/renderers/assumption-report-renderer.test.ts src/agents/solution-review-brief.test.ts src/features/solution-review-agent-handoff.test.ts src/artifacts/design-gap-report/build-design-gap-report.test.ts src/agents/solution-review-assistant.test.ts src/artifacts/artifact-bundle/build-artifact-bundle.test.ts src/features/solution-review-workflow.test.ts src/features/summarize-design-gaps.test.ts src/domain/schema/cloud-domain-schema.test.ts` → passing (`60 pass / 0 fail`); `bun run typecheck && bun test && bun run build` → passing (`368 pass / 0 fail`)
+- targeted verification update: M9000-CN04 management-domain firewall peer links now bind workbook ports `0/1/15 ↔ 0/1/15`; real-template probe reports `portFallbackWarningCount = 0`, `TOR warning count = 0`, `plane_link_port_type_mismatch = 0`, `extract_pending_confirmation_items = 4`, `draft_pending_confirmation_items = 4`, `handoff_unresolved_rows = 4`, and `confirmationPackets = 4`
+- verification update: `bun test src/features/extract-structured-input-from-templates.test.ts` → passing (`38 pass / 0 fail`), targeted real-template regression suite → passing (`112 pass / 0 fail`), `bun run typecheck` → passing, `bun test` → passing (`370 pass / 0 fail`), `bun run build` → passing

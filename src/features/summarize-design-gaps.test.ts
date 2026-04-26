@@ -43,4 +43,45 @@ describe("runSummarizeDesignGaps", () => {
     expect(result.validationSummary.issues.map((issue) => issue.code)).not.toContain("device_power_missing")
     expect(result.gaps.map((gap) => gap.title)).not.toContain("device_power_missing")
   })
+
+  test("surfaces operator-facing confirmation packets in the feature output", async () => {
+    const baseInput = createScn01SingleRackConnectivityFixture()
+    const link = baseInput.links[0]!
+    const endpointAPort = baseInput.ports.find((port) => port.id === link.endpointA.portId)!
+    const endpointBPort = baseInput.ports.find((port) => port.id === link.endpointB.portId)!
+    const endpointADevice = baseInput.devices.find((device) => device.id === endpointAPort.deviceId)!
+    const endpointBDevice = baseInput.devices.find((device) => device.id === endpointBPort.deviceId)!
+
+    const result = await runSummarizeDesignGaps({
+      input: {
+        ...baseInput,
+        pendingConfirmationItems: [
+          {
+            id: `template-plane-type-conflict|${endpointADevice.name}:${endpointAPort.name}|${endpointBDevice.name}:${endpointBPort.name}`,
+            kind: "template-plane-type-conflict",
+            title: "template plane type conflict requires confirmation",
+            detail: `Workbook-derived link ${endpointADevice.name}:${endpointAPort.name} ↔ ${endpointBDevice.name}:${endpointBPort.name} resolved conflicting explicit plane types (storage vs business); preserving this connection as ambiguous and requiring project confirmation.`,
+            severity: "warning",
+            confidenceState: "unresolved",
+            subjectType: "link",
+            subjectId: link.id,
+            entityRefs: [`link:${link.id}`],
+            endpointA: { deviceName: endpointADevice.name, portName: endpointAPort.name },
+            endpointB: { deviceName: endpointBDevice.name, portName: endpointBPort.name },
+            sourceRefs: [{ kind: "user-input" as const, ref: "structured-input" }],
+          },
+        ],
+      },
+    })
+
+    expect(result.reviewSummary.confirmationPacketCount).toBe(1)
+    expect(result.confirmationPackets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: `template-plane-type-conflict|${endpointADevice.name}:${endpointAPort.name}|${endpointBDevice.name}:${endpointBPort.name}`,
+          requiredDecision: `Confirm the intended plane/link type for ${endpointADevice.name}:${endpointAPort.name} ↔ ${endpointBDevice.name}:${endpointBPort.name}, then update the source/structured input accordingly.`,
+        }),
+      ]),
+    )
+  })
 })

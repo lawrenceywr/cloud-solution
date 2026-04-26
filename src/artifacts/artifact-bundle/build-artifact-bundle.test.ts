@@ -194,5 +194,13 @@ describe("buildArtifactBundleExport", () => {
         }),
       ]),
     )
+    expect(bundle.reviewSummary.confirmationPackets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "template-plane-type-conflict|server-a:eth0|switch-a:1/1",
+          requiredDecision: "Confirm the intended plane/link type for the affected connection ↔ the affected connection, then update the source/structured input accordingly.",
+        }),
+      ]),
+    )
   })
 })

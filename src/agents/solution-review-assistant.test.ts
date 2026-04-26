@@ -7,6 +7,7 @@ import {
   createFakeCoordinatorClient,
   createWorkerRuntimeContext,
 } from "../test-helpers/fake-coordinator-client"
+import { executeSolutionReviewAssistantWorker } from "../workers/solution-review-assistant/worker"
 import { buildSolutionReviewAgentBrief } from "./solution-review-brief"
 import {
   runSolutionReviewAssistant,
@@ -78,6 +79,7 @@ describe("runSolutionReviewAssistant", () => {
       summary: "Workflow failed.",
       blockedItems: ["boom"],
       reviewItems: [],
+      confirmationPackets: [],
       exportArtifactNames: [],
       guardrails: [],
     })
@@ -85,6 +87,48 @@ describe("runSolutionReviewAssistant", () => {
     expect(response.orchestrationState).toBe("failed")
     expect(response.nextAction).toBe("inspect_failure")
     expect(response.checklist).toEqual(["boom"])
+  })
+
+  test("includes confirmation packet decisions in deterministic review fallback guidance", () => {
+    const response = runSolutionReviewAssistant({
+      agentID: "solution_review_assistant",
+      orchestrationState: "review_required",
+      workflowState: "review_required",
+      goal: "Review unresolved items.",
+      nextAction: "review_assumptions",
+      summary: "Workflow needs review.",
+      blockedItems: [],
+      reviewItems: [],
+      confirmationPackets: [
+        {
+          id: "template-plane-type-conflict|server-a:eth0|switch-a:1/1",
+          kind: "template-plane-type-conflict",
+          severity: "warning",
+          title: "template plane type conflict requires confirmation",
+          requiredDecision: "Confirm the intended plane/link type for server-a:eth0 ↔ switch-a:1/1, then update the source/structured input accordingly.",
+          currentAmbiguity: "Workbook-derived link ambiguity remains unresolved.",
+          subjectType: "link",
+          subjectId: "link-a",
+          entityRefs: ["link:link-a"],
+          sourceRefs: [],
+          endpoints: {
+            endpointA: { deviceName: "server-a", portName: "eth0" },
+            endpointB: { deviceName: "switch-a", portName: "1/1" },
+          },
+          suggestedAction: "Confirm with the operator and update the structured input.",
+        },
+      ],
+      exportArtifactNames: [],
+      guardrails: [],
+    })
+
+    expect(response.orchestrationState).toBe("review_required")
+    expect(response.checklist).toContain(
+      "Confirm the intended plane/link type for server-a:eth0 ↔ switch-a:1/1, then update the source/structured input accordingly.",
+    )
+    expect(response.checklist).toContain(
+      "Confirm with the operator and update the structured input.",
+    )
   })
 
   test("returns child-session assistant output when the internal review agent responds with valid worker JSON", async () => {
@@ -244,5 +288,61 @@ describe("runSolutionReviewAssistant", () => {
     expect(result.finalResponse).toContain("export-ready")
     expect(result.nextActions).toContain("artifact-bundle-index.md")
     expect(result.warnings).toEqual(["assistant child failed"])
+  })
+
+  test("worker accepts older brief payloads that omit confirmationPackets", async () => {
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "solution-review-assistant",
+          status: "success",
+          output: {
+            finalResponse: "Review the listed assumptions and unresolved items before approving export.",
+            nextActions: ["inspect_review_summary"],
+          },
+          recommendations: ["inspect_review_summary"],
+        }),
+      ],
+    })
+
+    const result = await executeSolutionReviewAssistantWorker({
+      requirement: {
+        id: "req-worker-compat-1",
+        projectName: "Worker Compatibility Example",
+        scopeType: "data-center",
+        artifactRequests: [],
+        sourceRefs: [],
+        statusConfidence: "confirmed",
+      },
+      devices: [],
+      racks: [],
+      ports: [],
+      links: [],
+      segments: [],
+      allocations: [],
+      validationIssues: [],
+      reviewSummary: undefined,
+      context: {
+        agentBrief: {
+          agentID: "solution_review_assistant",
+          orchestrationState: "review_required",
+          workflowState: "review_required",
+          goal: "Review unresolved items.",
+          nextAction: "review_assumptions",
+          summary: "Workflow needs review.",
+          blockedItems: [],
+          reviewItems: ["inspect_review_summary"],
+          exportArtifactNames: [],
+          guardrails: [],
+        },
+      },
+      workerMessages: {},
+    }, createWorkerRuntimeContext(client))
+
+    expect(result.status).toBe("success")
+    expect(result.output).toEqual({
+      finalResponse: "Review the listed assumptions and unresolved items before approving export.",
+      nextActions: ["inspect_review_summary"],
+    })
   })
 })

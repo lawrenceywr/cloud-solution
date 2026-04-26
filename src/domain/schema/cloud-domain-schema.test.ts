@@ -307,6 +307,7 @@ describe("cloud domain schemas", () => {
 
     expect(validationSummary.valid).toBe(true)
     expect(reviewSummary.assumptionCount).toBe(1)
+    expect(reviewSummary.confirmationPackets).toEqual([])
     expect(bundleExport.includedArtifactNames).toContain("artifact-bundle-index.md")
   })
 

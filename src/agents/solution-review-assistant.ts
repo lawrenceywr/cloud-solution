@@ -39,6 +39,13 @@ function uniqueStrings(values: string[]): string[] {
   return [...new Set(values)]
 }
 
+function buildConfirmationPacketActions(brief: SolutionReviewAgentBrief): string[] {
+  return brief.confirmationPackets.flatMap((packet) => [
+    packet.requiredDecision,
+    ...(packet.suggestedAction ? [packet.suggestedAction] : []),
+  ])
+}
+
 function buildSolutionReviewAssistantPrompt(
   brief: SolutionReviewAgentBrief,
 ): string {
@@ -101,6 +108,8 @@ function buildAssistantExecutionResult(
 export function runSolutionReviewAssistant(
   brief: SolutionReviewAgentBrief,
 ): SolutionReviewAgentResponse {
+  const confirmationPacketActions = buildConfirmationPacketActions(brief)
+
   switch (brief.orchestrationState) {
     case "blocked":
       return {
@@ -108,9 +117,14 @@ export function runSolutionReviewAssistant(
         orchestrationState: brief.orchestrationState,
         nextAction: brief.nextAction,
         response: "Blocking validation issues must be resolved before review or export can continue.",
-        checklist: brief.blockedItems.length > 0
-          ? brief.blockedItems
-          : ["Inspect validation blockers before retrying the workflow."],
+        checklist: uniqueStrings(
+          brief.blockedItems.length > 0
+            ? [...brief.blockedItems, ...confirmationPacketActions]
+            : [
+                "Inspect validation blockers before retrying the workflow.",
+                ...confirmationPacketActions,
+              ],
+        ),
       }
     case "review_required":
       return {
@@ -118,9 +132,11 @@ export function runSolutionReviewAssistant(
         orchestrationState: brief.orchestrationState,
         nextAction: brief.nextAction,
         response: "Review the listed assumptions and unresolved items before approving export.",
-        checklist: brief.reviewItems.length > 0
-          ? brief.reviewItems
-          : ["Inspect the review summary before approving export."],
+        checklist: uniqueStrings(
+          brief.reviewItems.length > 0 || confirmationPacketActions.length > 0
+            ? [...confirmationPacketActions, ...brief.reviewItems]
+            : ["Inspect the review summary before approving export."],
+        ),
       }
     case "export_ready":
       return {

@@ -11,6 +11,7 @@ import type {
 } from "../../domain"
 import { DesignGapSummarySchema } from "../../domain"
 import { renderAssumptionReport, renderConflictReport } from "../../renderers"
+import { buildConfirmationPackets } from "./build-confirmation-packets"
 
 type ReviewSubject = {
   subjectType: ValidationIssueSubjectType
@@ -152,19 +153,24 @@ function buildAssumptionRows(input: CloudSolutionSliceInput) {
 }
 
 function buildPendingConfirmationRows(items: PendingConfirmationItem[]) {
-  return items
-    .map((item): DesignReviewItemRow => ({
+  const confirmationPackets = buildConfirmationPackets(items)
+
+  return {
+    confirmationPackets,
+    unresolvedItems: confirmationPackets
+      .map((item): DesignReviewItemRow => ({
       kind: "unresolved-item",
       severity: item.severity,
       subjectType: item.subjectType,
-      subjectId: item.subjectId ?? item.id,
+      subjectId: item.subjectId,
       title: item.title,
-      detail: item.detail,
-      confidenceState: item.confidenceState,
+      detail: item.currentAmbiguity,
+      confidenceState: "unresolved",
       entityRefs: item.entityRefs,
       sourceRefs: item.sourceRefs,
     }))
-    .sort(compareRows)
+      .sort(compareRows),
+  }
 }
 
 export function buildDesignGapReport(args: {
@@ -184,6 +190,7 @@ export function buildDesignGapReport(args: {
   const relevantSubjectTypeSet = relevantSubjectTypes
     ? new Set(relevantSubjectTypes)
     : undefined
+  const pendingConfirmationRows = buildPendingConfirmationRows(pendingConfirmationItems)
   const assumptions = buildAssumptionRows(input).filter((row) => row.kind === "assumption")
     .filter((row) => !relevantSubjectTypeSet || relevantSubjectTypeSet.has(row.subjectType))
   const issueRows = buildIssueRows({
@@ -195,9 +202,11 @@ export function buildDesignGapReport(args: {
     ...buildAssumptionRows(input)
       .filter((row) => row.kind === "unresolved-item")
       .filter((row) => !relevantSubjectTypeSet || relevantSubjectTypeSet.has(row.subjectType)),
-    ...buildPendingConfirmationRows(pendingConfirmationItems)
+    ...pendingConfirmationRows.unresolvedItems
       .filter((row) => !relevantSubjectTypeSet || relevantSubjectTypeSet.has(row.subjectType)),
   ].sort(compareRows)
+  const confirmationPackets = pendingConfirmationRows.confirmationPackets
+    .filter((item) => !relevantSubjectTypeSet || relevantSubjectTypeSet.has(item.subjectType))
   const reviewRequired =
     issueRows.gaps.length > 0 || assumptions.length > 0 || unresolvedItems.length > 0 || conflicts.length > 0
 
@@ -212,6 +221,7 @@ export function buildDesignGapReport(args: {
     assumptions,
     gaps: issueRows.gaps,
     unresolvedItems,
+    confirmationPackets,
     conflicts,
     blockingConflictCount: blockingConflicts.length,
     warningConflictCount: warningConflicts.length,
@@ -228,6 +238,7 @@ export function buildDesignGapReport(args: {
       assumptions,
       gaps: issueRows.gaps,
       unresolvedItems,
+      confirmationPackets,
     }),
   })
 }

@@ -725,10 +725,35 @@ describe("runSolutionReviewAgentHandoff", () => {
         }),
       ]),
     )
+    expect(result.reviewSummary?.confirmationPackets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: `template-plane-type-conflict|${endpointADevice.name}:${endpointAPort.name}|${endpointBDevice.name}:${endpointBPort.name}`,
+          requiredDecision: `Confirm the intended plane/link type for ${endpointADevice.name}:${endpointAPort.name} ↔ ${endpointBDevice.name}:${endpointBPort.name}, then update the source/structured input accordingly.`,
+          sourceRefs: [{ kind: "user-input", ref: "structured-input" }],
+        }),
+      ]),
+    )
     expect(result.confirmationSummary.pendingConfirmationItems).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           title: "template plane type conflict requires confirmation",
+        }),
+      ]),
+    )
+    expect(result.confirmationPackets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: `template-plane-type-conflict|${endpointADevice.name}:${endpointAPort.name}|${endpointBDevice.name}:${endpointBPort.name}`,
+          sourceRefs: [{ kind: "user-input", ref: "structured-input" }],
+        }),
+      ]),
+    )
+    expect(result.agentBrief.confirmationPackets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: `template-plane-type-conflict|${endpointADevice.name}:${endpointAPort.name}|${endpointBDevice.name}:${endpointBPort.name}`,
+          sourceRefs: [],
         }),
       ]),
     )

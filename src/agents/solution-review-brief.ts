@@ -9,6 +9,7 @@ export type SolutionReviewAgentBrief = {
   summary: string
   blockedItems: string[]
   reviewItems: string[]
+  confirmationPackets: NonNullable<BackgroundSolutionReviewWorkflowResult["reviewSummary"]>["confirmationPackets"]
   exportArtifactNames: string[]
   guardrails: string[]
 }
@@ -20,6 +21,15 @@ type SolutionReviewAgentBriefOverrides = {
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values)]
+}
+
+function sanitizeConfirmationPackets(
+  confirmationPackets: NonNullable<BackgroundSolutionReviewWorkflowResult["reviewSummary"]>["confirmationPackets"],
+): NonNullable<BackgroundSolutionReviewWorkflowResult["reviewSummary"]>["confirmationPackets"] {
+  return confirmationPackets.map((packet) => ({
+    ...packet,
+    sourceRefs: [],
+  }))
 }
 
 export function buildSolutionReviewAgentBrief(
@@ -44,6 +54,9 @@ export function buildSolutionReviewAgentBrief(
       : []),
     ...(overrides?.reviewItems ?? []),
   ])
+  const confirmationPackets = sanitizeConfirmationPackets(
+    workflow.reviewSummary?.confirmationPackets ?? [],
+  )
   const exportArtifactNames = workflow.bundle?.includedArtifactNames ?? []
 
   switch (workflow.orchestrationState) {
@@ -57,6 +70,7 @@ export function buildSolutionReviewAgentBrief(
         summary: `Workflow ${workflow.workflowID} is blocked and requires remediation before review or export.`,
         blockedItems,
         reviewItems,
+        confirmationPackets,
         exportArtifactNames,
         guardrails: [
           "Do not invent missing facts to clear blockers.",
@@ -74,6 +88,7 @@ export function buildSolutionReviewAgentBrief(
         summary: `Workflow ${workflow.workflowID} needs human review before export.`,
         blockedItems,
         reviewItems,
+        confirmationPackets,
         exportArtifactNames,
         guardrails: [
           "Do not treat inferred or unresolved facts as confirmed.",
@@ -91,6 +106,7 @@ export function buildSolutionReviewAgentBrief(
         summary: `Workflow ${workflow.workflowID} is export-ready.`,
         blockedItems,
         reviewItems,
+        confirmationPackets,
         exportArtifactNames,
         guardrails: [
           "Use the included bundle artifacts and review summary only.",
@@ -110,6 +126,7 @@ export function buildSolutionReviewAgentBrief(
           : "Workflow failed before a validated result was produced.",
         blockedItems: workflow.error ? [workflow.error] : blockedItems,
         reviewItems,
+        confirmationPackets,
         exportArtifactNames,
         guardrails: [
           "Do not assume a workflow result exists when orchestration failed.",
@@ -128,6 +145,7 @@ export function buildSolutionReviewAgentBrief(
         summary: `Workflow ${workflow.workflowID} is still ${workflow.orchestrationState}.`,
         blockedItems,
         reviewItems,
+        confirmationPackets,
         exportArtifactNames,
         guardrails: [
           "Do not act on partial workflow state.",

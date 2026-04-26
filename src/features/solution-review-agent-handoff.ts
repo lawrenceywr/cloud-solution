@@ -46,6 +46,7 @@ export type SolutionReviewAgentHandoff = BackgroundSolutionReviewWorkflowResult 
   inputState: DraftInputState
   candidateFacts: CandidateFact[]
   confirmationSummary: CandidateFactConfirmationSummary
+  confirmationPackets: SolutionReviewWorkflowResult["reviewSummary"]["confirmationPackets"]
   clarificationSummary: ClarificationSummary
   agentBrief: SolutionReviewAgentBrief
   agentResponse: SolutionReviewAgentResponse
@@ -500,6 +501,7 @@ export async function runSolutionReviewAgentHandoff(args: {
       inputState: preparedInput.inputState,
       candidateFacts: preparedInput.candidateFacts,
       confirmationSummary: preparedInput.confirmationSummary,
+      confirmationPackets: workflow.reviewSummary.confirmationPackets,
       clarificationSummary,
       agentBrief,
       agentResponse,
@@ -541,6 +543,7 @@ export async function runSolutionReviewAgentHandoff(args: {
         pendingEntityRefs: [],
         missingEntityRefs: [],
       },
+      confirmationPackets: [],
       clarificationSummary: emptyClarificationSummary,
       agentBrief,
       agentResponse,

@@ -1,6 +1,6 @@
 # Active Backlog
 
-**Last Updated:** 2026-04-23
+**Last Updated:** 2026-04-26
 
 ---
 
@@ -15,7 +15,7 @@
   - project-bound rack power / non-standard rack-U confirmations are explicit inputs rather than hidden assumptions
   - real-template quality runs retain workbook-derived ports and power while reducing importer-caused physical blockers
 - **Status:** In Progress
-- **Current slice landed:** workbook-driven structured import, project-bound port placement, device power import, rack defaults, and real-bundle alias disambiguation for firewall / SDN gateway / TOR are complete; workbook-derived plane-type conflicts now surface as structured pending-confirmation items across draft / review / export, and direct physical artifact tools now block when those unresolved conflicts remain. Remaining work is reducing the larger non-confirmed physical blocker set that still survives real-template quality runs.
+- **Current slice landed:** workbook-driven structured import, project-bound port placement, device power import, rack defaults, real-bundle alias disambiguation for firewall / SDN gateway / TOR, and workbook-derived M9000-CN04 firewall peer-link port binding are complete; workbook-derived plane-type conflicts now surface as structured pending-confirmation items plus operator-facing confirmation packets across review reports, assistant guidance, and handoff output, and direct physical artifact tools still block when those unresolved conflicts remain. Remaining work is reducing the larger non-confirmed physical blocker set that still survives real-template quality runs.
 
 ---
 

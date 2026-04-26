@@ -94,6 +94,11 @@ type PortPlanPortCategory =
   | "server-facing"
   | "data"
 
+type PortNumberSpecEntry = {
+  portSuffix: string
+  portIndex: number
+}
+
 type PortPlanAssignment = {
   boardNumber: string
   boardType?: string
@@ -629,14 +634,24 @@ function looksLikeProfileTitleRow(row: string[]): boolean {
   return !/^\d/.test(firstCell) && !/^NaN$/i.test(firstCell)
 }
 
-function parsePortNumberSpec(value: string | undefined): number[] {
+function parsePortNumberSpec(value: string | undefined): PortNumberSpecEntry[] {
   const normalized = cleanCell(value)
   if (!normalized) {
     return []
   }
 
   const parts = normalized.split(/[，,、]/).map((part) => part.trim()).filter(Boolean)
-  const results: number[] = []
+  const results: PortNumberSpecEntry[] = []
+  const seenPortSuffixes = new Set<string>()
+
+  const pushPortSpec = (entry: PortNumberSpecEntry) => {
+    if (seenPortSuffixes.has(entry.portSuffix)) {
+      return
+    }
+
+    seenPortSuffixes.add(entry.portSuffix)
+    results.push(entry)
+  }
 
   for (const part of parts) {
     const rangeMatch = part.match(/^(\d+)\s*[-~]\s*(\d+)$/)
@@ -646,23 +661,58 @@ function parsePortNumberSpec(value: string | undefined): number[] {
       const low = Math.min(start, end)
       const high = Math.max(start, end)
       for (let current = low; current <= high; current += 1) {
-        results.push(current)
+        pushPortSpec({
+          portSuffix: `${current}`,
+          portIndex: current,
+        })
       }
       continue
     }
 
-    const numeric = Number.parseInt(part, 10)
-    if (Number.isFinite(numeric)) {
-      results.push(numeric)
+    const slashDelimitedMatch = part.match(/^\d+(?:\s*\/\s*\d+)+$/)
+    if (slashDelimitedMatch) {
+      const portSuffix = part.replace(/\s+/g, "")
+      const leafPortToken = portSuffix.split("/").at(-1)
+      const portIndex = leafPortToken ? Number.parseInt(leafPortToken, 10) : Number.NaN
+      if (Number.isFinite(portIndex)) {
+        pushPortSpec({ portSuffix, portIndex })
+      }
+      continue
+    }
+
+    const numericMatch = part.match(/^\d+$/)
+    if (numericMatch) {
+      const numeric = Number.parseInt(part, 10)
+      pushPortSpec({
+        portSuffix: `${numeric}`,
+        portIndex: numeric,
+      })
     }
   }
 
-  return [...new Set(results)]
+  return results
 }
 
-function buildPlannedPortName(boardNumber: string, portIndex: number): string {
+function extractChildCardBoardIndex(boardType: string | undefined): string | undefined {
+  const normalizedBoardType = cleanCell(boardType)
+  const childCardMatch = normalizedBoardType.match(/^子卡\s*(\d+)/u)
+
+  return childCardMatch?.[1]
+}
+
+function buildPlannedPortName(boardNumber: string, boardType: string | undefined, portSuffix: string): string {
   const normalizedBoard = boardNumber.replace(/\s+/g, "") || "board"
-  return `${normalizedBoard}/${portIndex}`
+  const normalizedSuffix = portSuffix.replace(/\s+/g, "")
+  if (normalizedSuffix.includes("/")) {
+    return `${normalizedBoard}/${normalizedSuffix}`
+  }
+
+  const childCardBoardIndex = extractChildCardBoardIndex(boardType)
+  if (childCardBoardIndex) {
+    return `${normalizedBoard}/${childCardBoardIndex}/${normalizedSuffix}`
+  }
+
+  return `${normalizedBoard}/${normalizedSuffix}`
 }
 
 function classifyPortPlanAssignment(args: {
@@ -682,7 +732,7 @@ function classifyPortPlanAssignment(args: {
   const purpose = cleanCell(args.purpose)
   const context = `${args.sectionTitle} ${args.profileTitle} ${args.boardType ?? ""} ${connectTo} ${direction} ${purpose}`
 
-  if (/keepalive|IPL/i.test(context)) {
+  if (/keepalive|IPL|内部RBM互联/i.test(context)) {
     return { category: "peer-link", portType: "peer-link", purpose: purpose || "peer-link" }
   }
   if (/核心交换机|汇聚交换机|网关|路由器|防火墙|内部互联/i.test(context)) {
@@ -2024,8 +2074,8 @@ function parsePortPlanWorkbook(args: {
         continue
       }
 
-      const portIndexes = parsePortNumberSpec(row[currentColumnIndexes.portNumber])
-      if (portIndexes.length === 0) {
+      const parsedPortSpecs = parsePortNumberSpec(row[currentColumnIndexes.portNumber])
+      if (parsedPortSpecs.length === 0) {
         continue
       }
 
@@ -2063,12 +2113,16 @@ function parsePortPlanWorkbook(args: {
         state.portPlanProfiles.push(profile)
       }
 
-      for (const portIndex of portIndexes) {
+      for (const parsedPortSpec of parsedPortSpecs) {
         profile.assignments.push({
           boardNumber: currentBoardNumber,
           boardType: currentBoardType || undefined,
-          portIndex,
-          portName: buildPlannedPortName(currentBoardNumber, portIndex),
+          portIndex: parsedPortSpec.portIndex,
+          portName: buildPlannedPortName(
+            currentBoardNumber,
+            currentBoardType || undefined,
+            parsedPortSpec.portSuffix,
+          ),
           category: classification.category,
           portType: classification.portType,
           purpose: classification.purpose,

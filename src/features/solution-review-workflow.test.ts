@@ -220,5 +220,16 @@ describe("runSolutionReviewWorkflow", () => {
         }),
       ]),
     )
+    expect(result.reviewSummary.confirmationPackets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "template-plane-type-conflict|server-a:3/0|switch-a:1/1",
+          kind: "template-plane-type-conflict",
+          subjectType: "link",
+          requiredDecision: "Confirm the intended plane/link type for server-a:3/0 ↔ switch-a:1/1, then update the source/structured input accordingly.",
+          currentAmbiguity: "Workbook-derived link server-a:3/0 ↔ switch-a:1/1 resolved conflicting explicit plane types (storage vs business); preserving this connection as ambiguous and requiring project confirmation.",
+        }),
+      ]),
+    )
   })
 })

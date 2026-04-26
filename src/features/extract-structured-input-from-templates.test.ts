@@ -1060,12 +1060,243 @@ describe("runExtractStructuredInputFromTemplates", () => {
         expect.objectContaining({
           endpointA: {
             deviceName: "业务POD-核心防火墙-H3c SecPath M9000-x06-2",
-            portName: "0/13",
+            portName: "0/1/13",
           },
           endpointB: {
             deviceName: "业务POD-SDN网关-H3C S12508G-AF-2",
             portName: expect.any(String),
           },
+        }),
+      ]),
+    )
+  })
+
+  test("uses workbook-derived peer-link ports for management-domain M9000-CN04 firewall peer links", async () => {
+    const workspace = createTempWorkspace()
+    const pluginConfig = loadPluginConfig(process.cwd())
+    const templateSources = [
+      { kind: "document" as const, ref: "fixtures/cabling-template.xlsx", note: "Cable planning template" },
+      { kind: "document" as const, ref: "fixtures/port-plan.xlsx", note: "Port plan workbook" },
+    ]
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: templateSources[0],
+                markdown: [
+                  "## 交换机互联表",
+                  "",
+                  "| 线缆编号 | 线缆名称 | 线缆程式 | 线缆 条数 | 线缆长度 (米) | 线缆 总长度 （米） | 起始端 | Unnamed: 7 | 目的端 | Unnamed: 9 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | NaN | NaN | NaN | NaN | NaN | 机架 | 设备名称/型号 | 机架 | 设备名称/型号 |",
+                  "| 3 | 10GE双头光跳纤 | 多模光纤双芯 LC-LC | 4 | 20 | 80 | J11 | 核心区-管理域防火墙-H3c SecPath M9000-CN04-1 | I11 | 核心区-管理域防火墙-H3c SecPath M9000-CN04-2 |",
+                  "",
+                  "## 交换机上联表",
+                  "",
+                  "| 线缆编号 | 线缆名称 | 线缆程式 | 线缆 条数 | 线缆长度 (米) | 线缆 总长度 （米） | 起始端 | Unnamed: 7 | 目的端 | Unnamed: 9 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | NaN | NaN | NaN | NaN | NaN | 机架 | 设备名称/型号 | 机架 | 设备名称/型号 |",
+                  "| 15 | 100GE双头光跳纤 | 单模光纤双芯 LC-LC | 1 | 15 | 15 | J11 | 核心区-管理域防火墙-H3c SecPath M9000-CN04-1 | J05 | 互联层-南北向汇聚交换机-H3C S12516G-AF-1 |",
+                  "| 16 | 100GE双头光跳纤 | 单模光纤双芯 LC-LC | 1 | 25 | 25 | I11 | 核心区-管理域防火墙-H3c SecPath M9000-CN04-2 | J05 | 互联层-南北向汇聚交换机-H3C S12516G-AF-1 |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: templateSources[1],
+                markdown: [
+                  "## 防火墙",
+                  "",
+                  "| Unnamed: 0 | 管理域防火墙1 NS-SecPath M9000-CN04 | Unnamed: 2 | Unnamed: 3 | Unnamed: 4 | Unnamed: 5 | Unnamed: 6 | Unnamed: 7 | Unnamed: 8 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | 板卡编号 | 板卡类型 | 端口编号 | 端口类型 | 接至 | 电路开通方向 | 主要用途 | 备注 |",
+                  "| NaN | 0 | 子卡1--2端口100G以太网光接口(QSFP28)+16端口万兆以太网光接口模块(SFP+) | 15-18 | SFP+ SX(850nm,300m,LC) | 管理域防火墙2 | NS-SecPath M9000-CN04 | 内部RBM互联 | NaN |",
+                  "| NaN | NaN | NaN | 1 | 100G QSFP28(1310nm,10km,LR4,WDM,LC) | 南北汇聚交换机1 | S12516G-AF | 内部互联 | NaN |",
+                  "| NaN | 管理域防火墙2 NS-SecPath M9000-CN04 | NaN | NaN | NaN | NaN | NaN | NaN | NaN |",
+                  "| NaN | 板卡编号 | 板卡类型 | 端口编号 | 端口类型 | 接至 | 电路开通方向 | 主要用途 | 备注 |",
+                  "| NaN | 0 | 子卡1--2端口100G以太网光接口(QSFP28)+16端口万兆以太网光接口模块(SFP+) | 15-16 | SFP+ SX(850nm,300m,LC) | 管理域防火墙1 | NS-SecPath M9000-CN04 | 内部RBM互联 | NaN |",
+                  "| NaN | NaN | NaN | 1 | 100G QSFP28(1310nm,10km,LR4,WDM,LC) | 南北汇聚交换机1 | S12516G-AF | 内部互联 | NaN |",
+                ].join("\n"),
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+      ],
+    })
+
+    const result = await runExtractStructuredInputFromTemplates({
+      input: {
+        requirement: {
+          id: "req-template-m9000-cn04-peer-link-1",
+          projectName: "Template M9000-CN04 Peer Link Example",
+          scopeType: "data-center",
+          artifactRequests: ["device-cabling-table"],
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+        documentSources: templateSources,
+      },
+      pluginConfig,
+      runtime: createWorkerRuntimeContext(client, {
+        directory: workspace,
+        worktree: workspace,
+      }),
+      rootDirectory: workspace,
+    })
+
+    expect(result.warnings).not.toContain(
+      "Port plan matched device 核心区-管理域防火墙-H3c SecPath M9000-CN04-1, but no remaining peer-link port was available in workbook-derived assignments. Falling back to synthesized port naming.",
+    )
+    expect(result.warnings).not.toContain(
+      "Port plan matched device 核心区-管理域防火墙-H3c SecPath M9000-CN04-2, but no remaining peer-link port was available in workbook-derived assignments. Falling back to synthesized port naming.",
+    )
+    expect(result.draftInput.structuredInput.devices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "核心区-管理域防火墙-H3c SecPath M9000-CN04-1",
+          ports: expect.arrayContaining([
+            expect.objectContaining({ name: "0/1/15", portType: "peer-link" }),
+            expect.objectContaining({ name: "0/1/1", portType: "uplink" }),
+          ]),
+        }),
+        expect.objectContaining({
+          name: "核心区-管理域防火墙-H3c SecPath M9000-CN04-2",
+          ports: expect.arrayContaining([
+            expect.objectContaining({ name: "0/1/15", portType: "peer-link" }),
+            expect.objectContaining({ name: "0/1/1", portType: "uplink" }),
+          ]),
+        }),
+      ]),
+    )
+    expect(result.draftInput.structuredInput.links).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          endpointA: {
+            deviceName: "核心区-管理域防火墙-H3c SecPath M9000-CN04-1",
+            portName: "0/1/15",
+          },
+          endpointB: {
+            deviceName: "核心区-管理域防火墙-H3c SecPath M9000-CN04-2",
+            portName: "0/1/15",
+          },
+          linkType: "peer-link",
+        }),
+        expect.objectContaining({
+          endpointA: {
+            deviceName: "核心区-管理域防火墙-H3c SecPath M9000-CN04-1",
+            portName: "0/1/1",
+          },
+          endpointB: {
+            deviceName: "互联层-南北向汇聚交换机-H3C S12516G-AF-1",
+            portName: expect.any(String),
+          },
+          linkType: "uplink",
+        }),
+        expect.objectContaining({
+          endpointA: {
+            deviceName: "核心区-管理域防火墙-H3c SecPath M9000-CN04-2",
+            portName: "0/1/1",
+          },
+          endpointB: {
+            deviceName: "互联层-南北向汇聚交换机-H3C S12516G-AF-1",
+            portName: expect.any(String),
+          },
+          linkType: "uplink",
+        }),
+      ]),
+    )
+  })
+
+  test("preserves slash-delimited workbook port suffixes when building planned port names", async () => {
+    const workspace = createTempWorkspace()
+    const pluginConfig = loadPluginConfig(process.cwd())
+    const templateSources = [
+      { kind: "document" as const, ref: "fixtures/cabling-template.xlsx", note: "Cable planning template" },
+      { kind: "document" as const, ref: "fixtures/port-plan.xlsx", note: "Port plan workbook" },
+    ]
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: templateSources[0],
+                markdown: [
+                  "## 交换机上联表",
+                  "",
+                  "| 线缆编号 | 线缆名称 | 线缆程式 | 线缆 条数 | 线缆长度 (米) | 线缆 总长度 （米） | 起始端 | Unnamed: 7 | 目的端 | Unnamed: 9 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | NaN | NaN | NaN | NaN | NaN | 机架 | 设备名称/型号 | 机架 | 设备名称/型号 |",
+                  "| 1 | 100GE双头光跳纤 | 单模光纤双芯 LC-LC | 1 | 15 | 15 | A01 | 测试交换机-H3C S12516G-AF-1 | B01 | 上联交换机-H3C S12516G-AF-1 |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: templateSources[1],
+                markdown: [
+                  "## 交换机",
+                  "",
+                  "| Unnamed: 0 | 测试交换机 H3C S12516G-AF | Unnamed: 2 | Unnamed: 3 | Unnamed: 4 | Unnamed: 5 | Unnamed: 6 | Unnamed: 7 | Unnamed: 8 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | 板卡编号 | 板卡类型 | 端口编号 | 端口类型 | 接至 | 电路开通方向 | 主要用途 | 备注 |",
+                  "| NaN | 5 | 100GE接口板卡 | 1/1 | 100GE | 上联交换机1 | S12516G-AF | 内部互联 | NaN |",
+                ].join("\n"),
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+      ],
+    })
+
+    const result = await runExtractStructuredInputFromTemplates({
+      input: {
+        requirement: {
+          id: "req-template-slash-delimited-port-1",
+          projectName: "Template Slash Delimited Port Example",
+          scopeType: "data-center",
+          artifactRequests: ["device-cabling-table"],
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+        documentSources: templateSources,
+      },
+      pluginConfig,
+      runtime: createWorkerRuntimeContext(client, {
+        directory: workspace,
+        worktree: workspace,
+      }),
+      rootDirectory: workspace,
+    })
+
+    expect(result.draftInput.structuredInput.devices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "测试交换机-H3C S12516G-AF-1",
+          ports: expect.arrayContaining([
+            expect.objectContaining({ name: "5/1/1", portType: "uplink", portIndex: 1 }),
+          ]),
+        }),
+      ]),
+    )
+    expect(result.draftInput.structuredInput.links).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          endpointA: {
+            deviceName: "测试交换机-H3C S12516G-AF-1",
+            portName: "5/1/1",
+          },
+          endpointB: {
+            deviceName: "上联交换机-H3C S12516G-AF-1",
+            portName: expect.any(String),
+          },
+          linkType: "uplink",
         }),
       ]),
     )
@@ -3498,11 +3729,44 @@ describe("runExtractStructuredInputFromTemplates", () => {
         expect.stringContaining("resolved conflicting explicit plane types"),
       ]),
     )
+    expect(result.warnings).not.toContain(
+      "Port plan matched device 核心区-管理域防火墙-H3c SecPath M9000-CN04-1, but no remaining peer-link port was available in workbook-derived assignments. Falling back to synthesized port naming.",
+    )
+    expect(result.warnings).not.toContain(
+      "Port plan matched device 核心区-管理域防火墙-H3c SecPath M9000-CN04-2, but no remaining peer-link port was available in workbook-derived assignments. Falling back to synthesized port naming.",
+    )
     expect(result.draftInput.structuredInput.devices).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: "业务POD-B1H服务器-CS5280H3-1", powerWatts: 892 }),
         expect.objectContaining({ name: "业务POD-SDN千兆带内管理TOR-H3C S5560X-54C-EI-1", powerWatts: 55 }),
         expect.objectContaining({ name: "业务POD-C5服务器-NF8260-M7-A0-R0-00-12", powerWatts: 1339 }),
+        expect.objectContaining({
+          name: "核心区-管理域防火墙-H3c SecPath M9000-CN04-1",
+          ports: expect.arrayContaining([
+            expect.objectContaining({ name: "0/1/15", portType: "peer-link" }),
+          ]),
+        }),
+        expect.objectContaining({
+          name: "核心区-管理域防火墙-H3c SecPath M9000-CN04-2",
+          ports: expect.arrayContaining([
+            expect.objectContaining({ name: "0/1/15", portType: "peer-link" }),
+          ]),
+        }),
+      ]),
+    )
+    expect(result.draftInput.structuredInput.links).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          endpointA: {
+            deviceName: "核心区-管理域防火墙-H3c SecPath M9000-CN04-1",
+            portName: "0/1/15",
+          },
+          endpointB: {
+            deviceName: "核心区-管理域防火墙-H3c SecPath M9000-CN04-2",
+            portName: "0/1/15",
+          },
+          linkType: "peer-link",
+        }),
       ]),
     )
 
