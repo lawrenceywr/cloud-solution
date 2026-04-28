@@ -1,6 +1,6 @@
 import type { CloudSolutionConfig } from "./config"
 import type { ArtifactType } from "./domain"
-import { SUPPORTED_ENTITY_KINDS } from "./domain"
+import { SUPPORTED_ARTIFACT_TYPES, SUPPORTED_ENTITY_KINDS } from "./domain"
 import type { RuntimeContext } from "./plugin/types"
 
 export type Managers = {
@@ -20,7 +20,7 @@ export function createManagers(args: {
 
   return {
     scaffoldCatalog: {
-      artifactTypes: [...pluginConfig.default_artifacts],
+      artifactTypes: [...SUPPORTED_ARTIFACT_TYPES],
       entityKinds: [...SUPPORTED_ENTITY_KINDS],
       trustBoundary: [
         "input-capture",

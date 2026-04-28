@@ -151,4 +151,56 @@ describe("buildArtifactBundleExport", () => {
     expect(bundle.reviewRequired).toBe(false)
     expect(bundle.reviewSummary.blockingGapCount).toBe(0)
   })
+
+  test("includes pending confirmation items in bundle review summary when provided", () => {
+    const input = createScn01SingleRackConnectivityFixture()
+    const linkId = input.links[0]!.id
+    const endpointAPortId = input.ports[0]!.id
+    const endpointBPortId = input.ports[1]!.id
+    const documentSource = {
+      kind: "document" as const,
+      ref: "fixtures/cabling-template.xlsx",
+      note: "Cable planning template",
+    }
+    const bundle = buildArtifactBundleExport({
+      input,
+      issues: validateCloudSolutionModel(input),
+      pendingConfirmationItems: [
+        {
+          id: "template-plane-type-conflict|server-a:eth0|switch-a:1/1",
+          kind: "template-plane-type-conflict",
+          severity: "warning",
+          title: "template plane type conflict requires confirmation",
+          detail: "Workbook-derived link server-a:eth0 ↔ switch-a:1/1 resolved conflicting explicit plane types (storage vs business); preserving this connection as ambiguous and requiring project confirmation.",
+          confidenceState: "unresolved",
+          subjectType: "link",
+          subjectId: linkId,
+          entityRefs: [
+            `link:${linkId}`,
+            `port:${endpointAPortId}`,
+            `port:${endpointBPortId}`,
+          ],
+          sourceRefs: [documentSource],
+        },
+      ],
+    })
+
+    expect(bundle.reviewRequired).toBe(true)
+    expect(bundle.reviewSummary.unresolvedItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: "template plane type conflict requires confirmation",
+          confidenceState: "unresolved",
+        }),
+      ]),
+    )
+    expect(bundle.reviewSummary.confirmationPackets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "template-plane-type-conflict|server-a:eth0|switch-a:1/1",
+          requiredDecision: "Confirm the intended plane/link type for the affected connection ↔ the affected connection, then update the source/structured input accordingly.",
+        }),
+      ]),
+    )
+  })
 })

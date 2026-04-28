@@ -21,6 +21,16 @@ const StructuredPortSchema = z.object({
   id: z.string().optional(),
   name: z.string(),
   purpose: z.string().optional(),
+  portType: z.enum([
+    "data",
+    "business",
+    "storage",
+    "inband-mgmt",
+    "oob-mgmt",
+    "peer-link",
+    "uplink",
+  ]).optional(),
+  portIndex: z.number().int().nonnegative().optional(),
   sourceRefs: z.array(StructuredSourceReferenceSchema).default([]),
   statusConfidence: StructuredConfidenceStateSchema.default("confirmed"),
 })
@@ -39,6 +49,9 @@ const StructuredDeviceSchema = z.object({
   rackName: z.string().optional(),
   rackPosition: z.number().int().positive().optional(),
   rackUnitHeight: z.number().int().positive().optional(),
+  highAvailabilityGroup: z.string().optional(),
+  highAvailabilityRole: z.enum(["primary", "secondary"]).optional(),
+  powerWatts: z.number().positive().optional(),
   ports: z.array(StructuredPortSchema).default([]),
   sourceRefs: z.array(StructuredSourceReferenceSchema).default([]),
   statusConfidence: StructuredConfidenceStateSchema.default("confirmed"),
@@ -51,6 +64,9 @@ const StructuredRackSchema = z.object({
   room: z.string().optional(),
   row: z.string().optional(),
   uHeight: z.number().int().positive().optional(),
+  maxPowerKw: z.number().positive().optional(),
+  adjacentRackIds: z.array(z.string()).default([]),
+  adjacentColumnRackIds: z.array(z.string()).default([]),
   sourceRefs: z.array(StructuredSourceReferenceSchema).default([]),
   statusConfidence: StructuredConfidenceStateSchema.default("confirmed"),
 })
@@ -65,7 +81,20 @@ const StructuredLinkSchema = z.object({
   endpointA: StructuredLinkEndpointSchema,
   endpointB: StructuredLinkEndpointSchema,
   purpose: z.string().optional(),
+  linkType: z.enum([
+    "business",
+    "storage",
+    "inband-mgmt",
+    "oob-mgmt",
+    "peer-link",
+    "uplink",
+    "inter-switch",
+  ]).optional(),
   redundancyGroup: z.string().optional(),
+  cableId: z.string().optional(),
+  cableName: z.string().optional(),
+  cableSpec: z.string().optional(),
+  cableCount: z.number().int().positive().optional(),
   sourceRefs: z.array(StructuredSourceReferenceSchema).default([]),
   statusConfidence: StructuredConfidenceStateSchema.default("confirmed"),
 })
@@ -107,9 +136,10 @@ export const StructuredSolutionInputSchema = z.object({
 
 function slugify(value: string): string {
   return value
+    .normalize("NFKC")
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/[^\p{Letter}\p{Number}]+/gu, "-")
     .replace(/^-+|-+$/g, "")
 }
 
@@ -159,6 +189,9 @@ export function normalizeStructuredSolutionInput(input: unknown) {
     room: rack.room,
     row: rack.row,
     uHeight: rack.uHeight,
+    maxPowerKw: rack.maxPowerKw,
+    adjacentRackIds: rack.adjacentRackIds,
+    adjacentColumnRackIds: rack.adjacentColumnRackIds,
     sourceRefs: rack.sourceRefs,
     statusConfidence: rack.statusConfidence,
   }))
@@ -170,12 +203,15 @@ export function normalizeStructuredSolutionInput(input: unknown) {
     vendor: device.vendor,
     model: device.model,
     redundancyIntent: device.redundancyIntent,
-    rackId: device.rackName ? buildId("rack", device.rackName) : undefined,
-    rackPosition: device.rackPosition,
-    rackUnitHeight: device.rackUnitHeight,
-    sourceRefs: device.sourceRefs,
-    statusConfidence: device.statusConfidence,
-  }))
+      rackId: device.rackName ? buildId("rack", device.rackName) : undefined,
+      rackPosition: device.rackPosition,
+      rackUnitHeight: device.rackUnitHeight,
+      highAvailabilityGroup: device.highAvailabilityGroup,
+      highAvailabilityRole: device.highAvailabilityRole,
+      powerWatts: device.powerWatts,
+      sourceRefs: device.sourceRefs,
+      statusConfidence: device.statusConfidence,
+    }))
 
   const ports = parsed.structuredInput.devices.flatMap((device) => {
     const deviceId = device.id ?? buildId("device", device.name)
@@ -185,6 +221,8 @@ export function normalizeStructuredSolutionInput(input: unknown) {
       deviceId,
       name: port.name,
       purpose: port.purpose,
+      portType: port.portType,
+      portIndex: port.portIndex,
       sourceRefs: port.sourceRefs,
       statusConfidence: port.statusConfidence,
     }))
@@ -205,7 +243,12 @@ export function normalizeStructuredSolutionInput(input: unknown) {
       portId: buildPortId(link.endpointB.deviceName, link.endpointB.portName),
     },
     purpose: link.purpose,
+    linkType: link.linkType,
     redundancyGroup: link.redundancyGroup,
+    cableId: link.cableId,
+    cableName: link.cableName,
+    cableSpec: link.cableSpec,
+    cableCount: link.cableCount,
     sourceRefs: link.sourceRefs,
     statusConfidence: link.statusConfidence,
   }))

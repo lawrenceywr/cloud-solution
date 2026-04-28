@@ -12,6 +12,7 @@ import {
   createScn05PromotedDocumentAssistFixture,
   createScn06MultiDocumentConflictFixture,
   createScn07GuardedExportFixture,
+  createScn08HighReliabilityRackLayoutFixture,
 } from "./fixtures"
 import { createFakeCoordinatorClient } from "../test-helpers/fake-coordinator-client"
 
@@ -228,6 +229,32 @@ describe("scenario acceptance", () => {
       "design-assumptions-and-gaps.md",
       "ip-allocation-table.md",
     ])
+  })
+
+  test("SCN-08 produces rack layout and high-reliability cabling outputs", async () => {
+    const fixture = createScn08HighReliabilityRackLayoutFixture()
+
+    const validation = await invokeTool({
+      toolName: "validate_solution_model",
+      fixture,
+    })
+    const rackLayout = await invokeTool({
+      toolName: "generate_device_rack_layout",
+      fixture,
+    })
+    const cabling = await invokeTool({
+      toolName: "generate_device_cabling_table",
+      fixture,
+    })
+
+    expect(validation.valid).toBe(true)
+    expect(validation.issues).toEqual([])
+    expect(rackLayout.artifact.content).toContain("Status: ready")
+    expect(rackLayout.artifact.content).toContain("tor-pair-a")
+    expect(rackLayout.artifact.content).toContain("900")
+    expect(cabling.artifact.content).toContain("CAB-001")
+    expect(cabling.artifact.content).toContain("business")
+    expect(cabling.artifact.content).toContain("server-a-business-dual-home")
   })
 
   test("SCN-05 document-assisted drafts stay non-exportable until explicitly confirmed", async () => {

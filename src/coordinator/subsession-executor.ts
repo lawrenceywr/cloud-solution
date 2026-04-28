@@ -28,6 +28,58 @@ function stripJsonFence(text: string): string {
   return fenced ? fenced[1].trim() : trimmed
 }
 
+function normalizeWorkerErrors(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined
+  }
+
+  const normalized = value.flatMap((entry) => {
+    if (typeof entry === "string") {
+      return [entry]
+    }
+
+    if (typeof entry !== "object" || entry === null) {
+      return []
+    }
+
+    const objectEntry = entry as {
+      ref?: unknown
+      sourceRef?: unknown
+      message?: unknown
+    }
+    if (typeof objectEntry.message !== "string") {
+      return []
+    }
+
+    const sourceRef = objectEntry.sourceRef
+    const sourceRefLabel =
+      typeof sourceRef === "string"
+        ? sourceRef
+        : (typeof sourceRef === "object" && sourceRef !== null && "ref" in sourceRef && typeof sourceRef.ref === "string"
+          ? sourceRef.ref
+          : undefined)
+    const ref = typeof objectEntry.ref === "string" ? objectEntry.ref : sourceRefLabel
+
+    return [ref ? `${ref}: ${objectEntry.message}` : objectEntry.message]
+  })
+
+  return normalized.length > 0 ? normalized : undefined
+}
+
+function normalizeWorkerPayload(parsedJson: unknown): unknown {
+  if (typeof parsedJson !== "object" || parsedJson === null || !("errors" in parsedJson)) {
+    return parsedJson
+  }
+
+  const normalizedErrors = normalizeWorkerErrors((parsedJson as { errors?: unknown }).errors)
+  return normalizedErrors
+    ? {
+        ...parsedJson,
+        errors: normalizedErrors,
+      }
+    : parsedJson
+}
+
 function buildFailureResult(args: {
   workerId: string
   error: string
@@ -144,7 +196,9 @@ export async function executeWorkerSubsession(
         })
       }
 
-      const parsedResult = WorkerResultSchema.safeParse(parsedJson)
+      const normalizedParsedJson = normalizeWorkerPayload(parsedJson)
+
+      const parsedResult = WorkerResultSchema.safeParse(normalizedParsedJson)
 
       if (!parsedResult.success) {
         return buildFailureResult({

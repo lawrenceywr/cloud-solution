@@ -5,6 +5,7 @@ import {
   createScn04CloudNetworkAllocationFixture,
   createScn02DualTorFixture,
   createScn03MultiRackPodFixture,
+  createScn08HighReliabilityRackLayoutFixture,
 } from "../scenarios/fixtures"
 import {
   hasBlockingIssues,
@@ -315,6 +316,80 @@ describe("validateCloudSolutionModel", () => {
     })
 
     expect(issues.map((issue) => issue.code)).toContain("rack_position_exceeds_height")
+  })
+
+  test("blocks rack layout slices when no devices are present", () => {
+    const baseInput = createScn01PhysicalSliceInput()
+    const issues = validateCloudSolutionModel({
+      ...baseInput,
+      requirement: {
+        ...baseInput.requirement,
+        artifactRequests: ["device-rack-layout"],
+      },
+      devices: [],
+      ports: [],
+      links: [],
+    })
+
+    expect(issues.map((issue) => issue.code)).toContain("rack_layout_devices_missing")
+    expect(hasBlockingIssues(issues)).toBe(true)
+  })
+
+  test("blocks racks that exceed the 80 percent power threshold", () => {
+    const baseInput = createScn08HighReliabilityRackLayoutFixture()
+    const issues = validateCloudSolutionModel({
+      ...baseInput,
+      devices: [
+        ...baseInput.devices,
+        {
+          id: "device-storage-b",
+          name: "storage-b",
+          role: "storage",
+          rackId: "rack-a",
+          rackPosition: 20,
+          rackUnitHeight: 4,
+          powerWatts: 5000,
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+      ],
+    })
+
+    expect(issues.map((issue) => issue.code)).toContain("rack_power_threshold_exceeded")
+    expect(hasBlockingIssues(issues)).toBe(true)
+  })
+
+  test("blocks HA groups that are not placed on adjacent racks or columns", () => {
+    const baseInput = createScn08HighReliabilityRackLayoutFixture()
+    const issues = validateCloudSolutionModel({
+      ...baseInput,
+      racks: baseInput.racks.map((rack) => ({
+        ...rack,
+        adjacentRackIds: [],
+        adjacentColumnRackIds: [],
+      })),
+    })
+
+    expect(issues.map((issue) => issue.code)).toContain("ha_group_not_adjacent")
+    expect(hasBlockingIssues(issues)).toBe(true)
+  })
+
+  test("blocks MLAG redundancy groups whose peer-facing ports use mismatched port indexes", () => {
+    const baseInput = createScn08HighReliabilityRackLayoutFixture()
+    const issues = validateCloudSolutionModel({
+      ...baseInput,
+      ports: baseInput.ports.map((port) =>
+        port.id === "port-tor-b-business-1"
+          ? {
+              ...port,
+              portIndex: 2,
+            }
+          : port,
+      ),
+    })
+
+    expect(issues.map((issue) => issue.code)).toContain("mlag_port_index_mismatch")
+    expect(hasBlockingIssues(issues)).toBe(true)
   })
 
   test("assigns unique ids to repeated rack overlap issues on the same rack", () => {
@@ -925,5 +1000,295 @@ describe("validateCloudSolutionModel", () => {
 
     expect(issues.map((issue) => issue.code)).toEqual(["duplicate_link_connection"])
     expect(issues[0]?.subjectType).toBe("link")
+  })
+
+  test.each([
+    ["business", "storage"],
+    ["storage", "business"],
+    ["inband-mgmt", "oob-mgmt"],
+    ["oob-mgmt", "inband-mgmt"],
+  ] as const)(
+    "blocks %s links when endpoint ports are typed %s",
+    (linkType, mismatchedPortType) => {
+      const baseInput = createScn08HighReliabilityRackLayoutFixture()
+      const issues = validateCloudSolutionModel({
+        ...baseInput,
+        ports: baseInput.ports.map((port) =>
+          port.id === "port-tor-a-business-1"
+            ? {
+                ...port,
+                portType: mismatchedPortType,
+              }
+            : port,
+        ),
+        links: baseInput.links.map((link) =>
+          link.id === "link-server-a-business-a"
+            ? {
+                ...link,
+                linkType,
+              }
+            : link,
+        ),
+      })
+
+      expect(issues.map((issue) => issue.code)).toContain("plane_link_port_type_mismatch")
+      expect(hasBlockingIssues(issues)).toBe(true)
+    },
+  )
+
+  test("blocks typed ports that connect through untyped links", () => {
+    const baseInput = createScn08HighReliabilityRackLayoutFixture()
+    const issues = validateCloudSolutionModel({
+      ...baseInput,
+      links: baseInput.links.map((link) =>
+        link.id === "link-server-a-business-a"
+          ? {
+              ...link,
+              linkType: undefined,
+            }
+          : link,
+      ),
+    })
+
+    expect(issues.map((issue) => issue.code)).toContain("plane_link_port_type_mismatch")
+    expect(hasBlockingIssues(issues)).toBe(true)
+  })
+
+  test("blocks peer-links whose endpoints are not in the same HA group", () => {
+    const baseInput = createScn08HighReliabilityRackLayoutFixture()
+    const issues = validateCloudSolutionModel({
+      ...baseInput,
+      devices: baseInput.devices.map((device) =>
+        device.id === "device-tor-b"
+          ? {
+              ...device,
+              highAvailabilityGroup: "tor-pair-b",
+            }
+          : device,
+      ),
+      ports: [
+        ...baseInput.ports,
+        {
+          id: "port-tor-a-peer-1",
+          deviceId: "device-tor-a",
+          name: "eth1/49",
+          portType: "peer-link",
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+        {
+          id: "port-tor-b-peer-1",
+          deviceId: "device-tor-b",
+          name: "eth1/49",
+          portType: "peer-link",
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+      ],
+      links: [
+        ...baseInput.links,
+        {
+          id: "link-tor-peer-a",
+          endpointA: { portId: "port-tor-a-peer-1" },
+          endpointB: { portId: "port-tor-b-peer-1" },
+          linkType: "peer-link",
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+      ],
+    })
+
+    expect(issues.map((issue) => issue.code)).toContain("peer_link_ha_group_invalid")
+    expect(hasBlockingIssues(issues)).toBe(true)
+  })
+
+  test("blocks inter-switch links that terminate on non-network devices", () => {
+    const baseInput = createScn08HighReliabilityRackLayoutFixture()
+    const issues = validateCloudSolutionModel({
+      ...baseInput,
+      ports: [
+        ...baseInput.ports,
+        {
+          id: "port-tor-a-fabric-1",
+          deviceId: "device-tor-a",
+          name: "eth1/50",
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+        {
+          id: "port-server-a-fabric-1",
+          deviceId: "device-server-a",
+          name: "eth9",
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+      ],
+      links: [
+        ...baseInput.links,
+        {
+          id: "link-invalid-inter-switch",
+          endpointA: { portId: "port-tor-a-fabric-1" },
+          endpointB: { portId: "port-server-a-fabric-1" },
+          linkType: "inter-switch",
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+      ],
+    })
+
+    expect(issues.map((issue) => issue.code)).toContain("inter_switch_link_endpoint_invalid")
+    expect(hasBlockingIssues(issues)).toBe(true)
+  })
+
+  test("blocks uplinks that terminate on non-network devices", () => {
+    const baseInput = createScn08HighReliabilityRackLayoutFixture()
+    const issues = validateCloudSolutionModel({
+      ...baseInput,
+      ports: [
+        ...baseInput.ports,
+        {
+          id: "port-tor-a-uplink-1",
+          deviceId: "device-tor-a",
+          name: "eth1/51",
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+        {
+          id: "port-server-a-uplink-1",
+          deviceId: "device-server-a",
+          name: "eth10",
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+      ],
+      links: [
+        ...baseInput.links,
+        {
+          id: "link-invalid-uplink",
+          endpointA: { portId: "port-tor-a-uplink-1" },
+          endpointB: { portId: "port-server-a-uplink-1" },
+          linkType: "uplink",
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+      ],
+    })
+
+    expect(issues.map((issue) => issue.code)).toContain("uplink_link_endpoint_invalid")
+    expect(hasBlockingIssues(issues)).toBe(true)
+  })
+
+  test("blocks HA devices that omit an explicit HA role", () => {
+    const baseInput = createScn08HighReliabilityRackLayoutFixture()
+    const issues = validateCloudSolutionModel({
+      ...baseInput,
+      devices: baseInput.devices.map((device) =>
+        device.id === "device-tor-b"
+          ? {
+              ...device,
+              highAvailabilityRole: undefined,
+            }
+          : device,
+      ),
+    })
+
+    expect(issues.map((issue) => issue.code)).toContain("ha_group_role_missing")
+    expect(hasBlockingIssues(issues)).toBe(true)
+  })
+
+  test("blocks HA groups without one primary and one secondary role", () => {
+    const baseInput = createScn08HighReliabilityRackLayoutFixture()
+    const issues = validateCloudSolutionModel({
+      ...baseInput,
+      devices: baseInput.devices.map((device) =>
+        device.id === "device-tor-b"
+          ? {
+              ...device,
+              highAvailabilityRole: "primary",
+            }
+          : device,
+      ),
+    })
+
+    expect(issues.map((issue) => issue.code)).toContain("ha_group_role_incomplete")
+    expect(hasBlockingIssues(issues)).toBe(true)
+  })
+
+  test("blocks high-reliability rack layout when rack power budgets are missing", () => {
+    const baseInput = createScn08HighReliabilityRackLayoutFixture()
+    const issues = validateCloudSolutionModel({
+      ...baseInput,
+      racks: baseInput.racks.map((rack) =>
+        rack.id === "rack-a"
+          ? {
+              ...rack,
+              maxPowerKw: undefined,
+            }
+          : rack,
+      ),
+    })
+
+    expect(issues.map((issue) => issue.code)).toContain("rack_power_budget_missing")
+    expect(hasBlockingIssues(issues)).toBe(true)
+  })
+
+  test("blocks high-reliability rack layout when device power is missing", () => {
+    const baseInput = createScn08HighReliabilityRackLayoutFixture()
+    const issues = validateCloudSolutionModel({
+      ...baseInput,
+      devices: baseInput.devices.map((device) =>
+        device.id === "device-server-a"
+          ? {
+              ...device,
+              powerWatts: undefined,
+            }
+          : device,
+      ),
+    })
+
+    expect(issues.map((issue) => issue.code)).toContain("device_power_missing")
+    expect(hasBlockingIssues(issues)).toBe(true)
+  })
+
+  test("does not block high-reliability rack layout when a cable-manager has no powerWatts", () => {
+    const baseInput = createScn08HighReliabilityRackLayoutFixture()
+    const issues = validateCloudSolutionModel({
+      ...baseInput,
+      devices: [
+        ...baseInput.devices,
+        {
+          id: "device-cable-manager-a",
+          name: "48口理线器",
+          role: "cable-manager",
+          rackId: "rack-a",
+          rackPosition: 20,
+          rackUnitHeight: 1,
+          powerWatts: undefined,
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+      ],
+    })
+
+    expect(issues.map((issue) => issue.code)).not.toContain("device_power_missing")
+    expect(hasBlockingIssues(issues)).toBe(false)
+  })
+
+  test("blocks dual-homed peers that do not resolve to one complete HA pair", () => {
+    const baseInput = createScn08HighReliabilityRackLayoutFixture()
+    const issues = validateCloudSolutionModel({
+      ...baseInput,
+      devices: baseInput.devices.map((device) =>
+        device.id === "device-tor-b"
+          ? {
+              ...device,
+              highAvailabilityGroup: undefined,
+            }
+          : device,
+      ),
+    })
+
+    expect(issues.map((issue) => issue.code)).toContain("redundancy_peer_ha_group_invalid")
+    expect(hasBlockingIssues(issues)).toBe(true)
   })
 })

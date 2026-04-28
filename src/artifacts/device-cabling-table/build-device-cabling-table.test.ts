@@ -85,7 +85,7 @@ describe("buildDeviceCablingTableArtifact", () => {
     expect(artifact.name).toBe("device-cabling-table.md")
     expect(artifact.content).toContain("Status: ready")
     expect(artifact.content).toContain(
-      "| Link ID | Endpoint A Rack | Endpoint A Device | Endpoint A Port | Endpoint B Rack | Endpoint B Device | Endpoint B Port | Purpose | Redundancy Group |",
+      "| Link ID | Endpoint A Rack | Endpoint A Device | Endpoint A Port | Endpoint B Rack | Endpoint B Device | Endpoint B Port | Purpose | Link Type | Redundancy Group | Cable ID | Cable Name | Cable Spec | Cable Count |",
     )
     expect(artifact.content).toContain("rack-a (rack-a) U1")
     expect(artifact.content).toContain("server-a (device-server-a)")

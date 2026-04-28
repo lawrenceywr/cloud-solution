@@ -157,20 +157,25 @@ function buildRows(input: CloudSolutionSliceInput): DeviceCablingTableRow[] {
         endpointBPortName: rightEndpoint.portName,
         endpointBPortId: rightEndpoint.portId,
         purpose: link.purpose,
+        linkType: link.linkType,
         redundancyGroup: link.redundancyGroup,
+        cableId: link.cableId,
+        cableName: link.cableName,
+        cableSpec: link.cableSpec,
+        cableCount: link.cableCount,
       })
     })
 }
 
 function buildRowTable(rows: DeviceCablingTableRow[]): string {
   const lines = [
-    "| Link ID | Endpoint A Rack | Endpoint A Device | Endpoint A Port | Endpoint B Rack | Endpoint B Device | Endpoint B Port | Purpose | Redundancy Group |",
-    "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    "| Link ID | Endpoint A Rack | Endpoint A Device | Endpoint A Port | Endpoint B Rack | Endpoint B Device | Endpoint B Port | Purpose | Link Type | Redundancy Group | Cable ID | Cable Name | Cable Spec | Cable Count |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
   ]
 
   for (const row of rows) {
     lines.push(
-      `| ${row.linkId} | ${row.endpointARackName} (${row.endpointARackId}) U${row.endpointARackPosition} | ${row.endpointADeviceName} (${row.endpointADeviceId}) | ${row.endpointAPortName} (${row.endpointAPortId}) | ${row.endpointBRackName} (${row.endpointBRackId}) U${row.endpointBRackPosition} | ${row.endpointBDeviceName} (${row.endpointBDeviceId}) | ${row.endpointBPortName} (${row.endpointBPortId}) | ${row.purpose ?? "-"} | ${row.redundancyGroup ?? "-"} |`,
+      `| ${row.linkId} | ${row.endpointARackName} (${row.endpointARackId}) U${row.endpointARackPosition} | ${row.endpointADeviceName} (${row.endpointADeviceId}) | ${row.endpointAPortName} (${row.endpointAPortId}) | ${row.endpointBRackName} (${row.endpointBRackId}) U${row.endpointBRackPosition} | ${row.endpointBDeviceName} (${row.endpointBDeviceId}) | ${row.endpointBPortName} (${row.endpointBPortId}) | ${row.purpose ?? "-"} | ${row.linkType ?? "-"} | ${row.redundancyGroup ?? "-"} | ${row.cableId ?? "-"} | ${row.cableName ?? "-"} | ${row.cableSpec ?? "-"} | ${row.cableCount ?? "-"} |`,
     )
   }
 

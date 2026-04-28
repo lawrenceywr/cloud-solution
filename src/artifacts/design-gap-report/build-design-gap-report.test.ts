@@ -93,4 +93,76 @@ describe("buildDesignGapReport", () => {
     expect(summary.blockingConflictCount).toBe(0)
     expect(summary.hasBlockingConflicts).toBe(false)
   })
+
+  test("projects pending confirmation items into operator-facing confirmation packets", () => {
+    const input = createScn01SingleRackConnectivityFixture()
+    const summary = buildDesignGapReport({
+      input,
+      issues: [],
+      pendingConfirmationItems: [
+        {
+          id: "template-plane-type-conflict|server-a:eth0|switch-a:xe-0/0/1",
+          kind: "template-plane-type-conflict",
+          severity: "warning",
+          title: "template plane type conflict requires confirmation",
+          detail: "Workbook-derived link server-a:eth0 ↔ switch-a:xe-0/0/1 resolved conflicting explicit plane types (storage vs business); preserving this connection as ambiguous and requiring project confirmation.",
+          confidenceState: "unresolved",
+          subjectType: "link",
+          subjectId: "link-server-a-switch-a",
+          entityRefs: ["link:link-server-a-switch-a"],
+          sourceRefs: [{ kind: "document", ref: "fixtures/template.xlsx" }],
+          endpointA: { deviceName: "server-a", portName: "eth0" },
+          endpointB: { deviceName: "switch-a", portName: "xe-0/0/1" },
+        },
+      ],
+    })
+
+    expect(summary.reviewRequired).toBe(true)
+    expect(summary.unresolvedItemCount).toBe(1)
+    expect(summary.confirmationPackets).toEqual([
+      expect.objectContaining({
+        id: "template-plane-type-conflict|server-a:eth0|switch-a:xe-0/0/1",
+        kind: "template-plane-type-conflict",
+        subjectType: "link",
+        subjectId: "link-server-a-switch-a",
+        requiredDecision: "Confirm the intended plane/link type for server-a:eth0 ↔ switch-a:xe-0/0/1, then update the source/structured input accordingly.",
+        currentAmbiguity: "Workbook-derived link server-a:eth0 ↔ switch-a:xe-0/0/1 resolved conflicting explicit plane types (storage vs business); preserving this connection as ambiguous and requiring project confirmation.",
+        suggestedAction: "Confirm the intended plane/link type with the operator and update the source or structured input to match that decision.",
+        endpoints: {
+          endpointA: { deviceName: "server-a", portName: "eth0" },
+          endpointB: { deviceName: "switch-a", portName: "xe-0/0/1" },
+        },
+      }),
+    ])
+    expect(summary.artifact.content).toContain("## Confirmation Packets")
+    expect(summary.artifact.content).toContain("- Required Decision: Confirm the intended plane/link type for server-a:eth0 ↔ switch-a:xe-0/0/1, then update the source/structured input accordingly.")
+    expect(summary.artifact.content).toContain("- Suggested Action: Confirm the intended plane/link type with the operator and update the source or structured input to match that decision.")
+  })
+
+  test("does not project confirmation packets for non-unresolved pending items", () => {
+    const input = createScn01SingleRackConnectivityFixture()
+    const summary = buildDesignGapReport({
+      input,
+      issues: [],
+      pendingConfirmationItems: [
+        {
+          id: "template-plane-type-conflict|server-a:eth0|switch-a:xe-0/0/1",
+          kind: "template-plane-type-conflict",
+          severity: "warning",
+          title: "template plane type conflict requires confirmation",
+          detail: "Should not project because this item is no longer unresolved.",
+          confidenceState: "confirmed",
+          subjectType: "link",
+          subjectId: "link-server-a-switch-a",
+          entityRefs: ["link:link-server-a-switch-a"],
+          sourceRefs: [],
+          endpointA: { deviceName: "server-a", portName: "eth0" },
+          endpointB: { deviceName: "switch-a", portName: "xe-0/0/1" },
+        },
+      ],
+    })
+
+    expect(summary.confirmationPackets).toEqual([])
+    expect(summary.unresolvedItems).toEqual([])
+  })
 })

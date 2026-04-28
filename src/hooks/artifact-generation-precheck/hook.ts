@@ -5,7 +5,9 @@ import type {
   ToolExecuteBeforeOutput,
 } from "../../plugin/types"
 import {
+  buildPendingConfirmationBlockMessage,
   buildGuardValidationSlice,
+  collectRelevantPendingConfirmationItems,
   collectBlockingIssueCodes,
   evaluateExportGuardState,
   isArtifactGenerationTool,
@@ -59,6 +61,14 @@ export function createArtifactGenerationPrecheckHook(
         throw new Error(
           `Artifact generation is blocked by validation issues: ${blockingIssueCodes.join(", ")}`,
         )
+      }
+
+      const pendingConfirmationItems = collectRelevantPendingConfirmationItems({
+        toolName: input.tool,
+        input: args,
+      })
+      if (pendingConfirmationItems.length > 0) {
+        throw new Error(buildPendingConfirmationBlockMessage(pendingConfirmationItems))
       }
     },
   }

@@ -5,12 +5,14 @@ import type {
   CandidateFactConfirmationSummary,
   CloudSolutionSliceInput,
   DraftInputState,
+  PendingConfirmationItem,
   SourceReference,
 } from "../domain"
 import {
   CandidateFactConfirmationSummarySchema,
   CandidateFactSchema,
   CloudSolutionSliceInputSchema,
+  PendingConfirmationItemSchema,
   SolutionRequirementSchema,
   SourceReferenceSchema,
 } from "../domain"
@@ -35,6 +37,7 @@ const DraftPreparationSchema = z.object({
     candidateFacts: StructuredSolutionInputSchema.shape.structuredInput,
   }).optional(),
   confirmation: ConfirmationInputSchema.optional(),
+  pendingConfirmationItems: z.array(PendingConfirmationItemSchema).default([]),
 })
 
 type StructuredInput = z.infer<typeof StructuredSolutionInputSchema>["structuredInput"]
@@ -51,6 +54,77 @@ export type PreparedDraftSolutionInput = {
   inputState: DraftInputState
   candidateFacts: CandidateFact[]
   confirmationSummary: CandidateFactConfirmationSummary
+}
+
+function extractRawPendingConfirmationItems(rawInputRecord: Record<string, unknown>): PendingConfirmationItem[] {
+  const rawItems = rawInputRecord.pendingConfirmationItems
+  if (!Array.isArray(rawItems)) {
+    return []
+  }
+
+  return rawItems.map((item) => PendingConfirmationItemSchema.parse(item))
+}
+
+function resolvePendingConfirmationItems(args: {
+  items: PendingConfirmationItem[]
+  input: CloudSolutionSliceInput
+}): PendingConfirmationItem[] {
+  if (args.items.length === 0) {
+    return []
+  }
+
+  const deviceNameById = new Map(args.input.devices.map((device) => [device.id, device.name]))
+  const portIdByRef = new Map<string, string>()
+  const portsById = new Map(args.input.ports.map((port) => [port.id, port]))
+
+  for (const port of args.input.ports) {
+    const deviceName = deviceNameById.get(port.deviceId)
+    if (!deviceName) {
+      continue
+    }
+    portIdByRef.set(`${deviceName}:${port.name}`, port.id)
+  }
+
+  return args.items.map((item) => {
+    if (item.subjectId && item.entityRefs.length > 0) {
+      return item
+    }
+
+    const endpointARef = item.endpointA
+      ? `${item.endpointA.deviceName}:${item.endpointA.portName}`
+      : undefined
+    const endpointBRef = item.endpointB
+      ? `${item.endpointB.deviceName}:${item.endpointB.portName}`
+      : undefined
+    const endpointAPortId = endpointARef ? portIdByRef.get(endpointARef) : undefined
+    const endpointBPortId = endpointBRef ? portIdByRef.get(endpointBRef) : undefined
+
+    const resolvedLink = endpointAPortId && endpointBPortId
+      ? args.input.links.find((link) => {
+          const sameDirection = link.endpointA.portId === endpointAPortId && link.endpointB.portId === endpointBPortId
+          const reverseDirection = link.endpointA.portId === endpointBPortId && link.endpointB.portId === endpointAPortId
+          return sameDirection || reverseDirection
+        })
+      : undefined
+
+    const entityRefs = [
+      ...(resolvedLink ? [`link:${resolvedLink.id}`] : []),
+      ...(endpointAPortId ? [`port:${endpointAPortId}`] : []),
+      ...(endpointBPortId ? [`port:${endpointBPortId}`] : []),
+    ]
+
+    return PendingConfirmationItemSchema.parse({
+      ...item,
+      subjectId: resolvedLink?.id ?? item.subjectId ?? item.id,
+      entityRefs,
+      sourceRefs: item.sourceRefs.length > 0
+        ? item.sourceRefs
+        : [
+            ...(endpointAPortId ? (portsById.get(endpointAPortId)?.sourceRefs ?? []) : []),
+            ...(endpointBPortId ? (portsById.get(endpointBPortId)?.sourceRefs ?? []) : []),
+          ],
+    })
+  })
 }
 
 function hasNonEmptyCanonicalEntities(input: Record<string, unknown>): boolean {
@@ -390,6 +464,7 @@ export function prepareDraftSolutionInput(
       confirmationSummary: CandidateFactConfirmationSummarySchema.parse({}),
     }
   }
+  const rawPendingConfirmationItems = extractRawPendingConfirmationItems(rawInputRecord)
 
   const hasDraftKeys = "structuredInput" in rawInput || "documentAssist" in rawInput || "confirmation" in rawInput
   if (!hasDraftKeys) {
@@ -397,8 +472,16 @@ export function prepareDraftSolutionInput(
       if (hasCandidateFactSourceBasedFacts(rawInputRecord)) {
         // Treat as a candidate fact draft even without explicit documentAssist wrapper
       const normalizedInput = CloudSolutionSliceInputSchema.parse(rawInput)
+      const pendingConfirmationItems = resolvePendingConfirmationItems({
+        items: rawPendingConfirmationItems,
+        input: normalizedInput,
+      })
       const candidateFacts = buildCandidateFacts(normalizedInput)
-      const confirmationSummary = CandidateFactConfirmationSummarySchema.parse({})
+      const confirmationSummary = CandidateFactConfirmationSummarySchema.parse(
+        pendingConfirmationItems.length > 0
+          ? { pendingConfirmationItems }
+          : {},
+      )
       return {
         normalizedInput,
         inputState: candidateFacts.some((fact) => fact.requiresConfirmation)
@@ -409,11 +492,21 @@ export function prepareDraftSolutionInput(
       }
     }
 
+    const normalizedInput = CloudSolutionSliceInputSchema.parse(rawInput)
+    const pendingConfirmationItems = resolvePendingConfirmationItems({
+      items: rawPendingConfirmationItems,
+      input: normalizedInput,
+    })
+
     return {
-      normalizedInput: CloudSolutionSliceInputSchema.parse(rawInput),
+      normalizedInput,
       inputState: "confirmed_slice",
       candidateFacts: [],
-      confirmationSummary: CandidateFactConfirmationSummarySchema.parse({}),
+      confirmationSummary: CandidateFactConfirmationSummarySchema.parse(
+        pendingConfirmationItems.length > 0
+          ? { pendingConfirmationItems }
+          : {},
+      ),
     }
   }
 
@@ -479,6 +572,10 @@ export function prepareDraftSolutionInput(
       ? (parsedInput.confirmation?.entityRefs ?? [])
       : [],
   })
+  const pendingConfirmationItems = resolvePendingConfirmationItems({
+    items: parsedInput.pendingConfirmationItems,
+    input: promoted.normalizedInput,
+  })
   const candidateFacts = buildCandidateFacts(promoted.normalizedInput)
 
   return {
@@ -489,6 +586,15 @@ export function prepareDraftSolutionInput(
         : "confirmed_slice"
       : "structured_input",
     candidateFacts,
-    confirmationSummary: promoted.confirmationSummary,
+    confirmationSummary: CandidateFactConfirmationSummarySchema.parse({
+      ...promoted.confirmationSummary,
+      ...(pendingConfirmationItems.length > 0
+        ? {
+            pendingConfirmationItems,
+          }
+        : {}),
+    }),
   }
 }
+
+export { resolvePendingConfirmationItems }

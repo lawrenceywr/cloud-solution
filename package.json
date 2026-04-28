@@ -16,7 +16,7 @@
     }
   },
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target bun --format esm && tsc --emitDeclarationOnly",
+    "build": "bun build src/index.ts --outdir dist --target bun --format esm && tsc --emitDeclarationOnly && rm -rf dist/runtime-assets && mkdir -p dist/runtime-assets && cp -R test/converted-markdown dist/runtime-assets/converted-markdown",
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",
     "test": "bun test"

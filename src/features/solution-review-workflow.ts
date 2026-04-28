@@ -5,13 +5,14 @@ import type {
   CloudSolutionSliceInput,
   Conflict,
   DesignGapSummary,
+  PendingConfirmationItem,
   ValidationIssue,
   ValidationIssueSubjectType,
   ValidationSummary,
 } from "../domain"
-import { ValidationSummarySchema } from "../domain"
+import { PendingConfirmationItemSchema, ValidationSummarySchema } from "../domain"
 import { buildArtifactBundleExport, buildDesignGapReport } from "../artifacts"
-import { normalizeSolutionToolInput } from "../normalizers"
+import { normalizeSolutionToolInput, resolvePendingConfirmationItems } from "../normalizers"
 import { hasBlockingIssues, validateCloudSolutionModel } from "../validators"
 
 export type SolutionReviewWorkflowState =
@@ -34,6 +35,7 @@ function getRelevantSubjectTypes(
 
   if (
     requestedArtifactTypes.includes("device-cabling-table")
+    || requestedArtifactTypes.includes("device-rack-layout")
     || requestedArtifactTypes.includes("device-port-plan")
     || requestedArtifactTypes.includes("device-port-connection-table")
   ) {
@@ -56,6 +58,27 @@ export type SolutionReviewWorkflowResult = {
 }
 
 export type EvaluatedSolutionReviewWorkflow = Omit<SolutionReviewWorkflowResult, "bundle">
+
+function extractPendingConfirmationItems(input: unknown): PendingConfirmationItem[] {
+  if (typeof input !== "object" || input === null) {
+    return []
+  }
+
+  const record = input as {
+    pendingConfirmationItems?: unknown
+    confirmationSummary?: { pendingConfirmationItems?: unknown }
+  }
+  const items = [
+    ...(Array.isArray(record.pendingConfirmationItems) ? record.pendingConfirmationItems : []),
+    ...(record.confirmationSummary && Array.isArray(record.confirmationSummary.pendingConfirmationItems)
+      ? record.confirmationSummary.pendingConfirmationItems
+      : []),
+  ]
+
+  const parsedItems = items.map((item) => PendingConfirmationItemSchema.parse(item))
+  const deduped = new Map(parsedItems.map((item) => [item.id, item]))
+  return [...deduped.values()]
+}
 
 function ensureBundleArtifactRequests(args: {
   sliceInput: CloudSolutionSliceInput
@@ -97,6 +120,10 @@ export function runSolutionReviewWorkflow(args: {
     mode,
     includeBundleWhenNotExportReady = false,
   } = args
+  const pendingConfirmationItems = resolvePendingConfirmationItems({
+    items: extractPendingConfirmationItems(args.input),
+    input: evaluation.sliceInput,
+  })
 
   const bundle =
     mode === "export"
@@ -104,6 +131,7 @@ export function runSolutionReviewWorkflow(args: {
       ? buildArtifactBundleExport({
           input: evaluation.sliceInput,
           issues: evaluation.issues,
+          pendingConfirmationItems,
         })
       : undefined
 
@@ -143,6 +171,10 @@ export function evaluateSolutionReviewWorkflow(args: {
         defaultArtifactTypes: pluginConfig?.default_artifacts ?? [],
       })
     : normalizedInput
+  const pendingConfirmationItems = resolvePendingConfirmationItems({
+    items: extractPendingConfirmationItems(input),
+    input: sliceInput,
+  })
   const issues = validateCloudSolutionModel(sliceInput)
   const validationSummary = buildValidationSummary(issues)
 
@@ -153,6 +185,7 @@ export function evaluateSolutionReviewWorkflow(args: {
       issues,
       relevantSubjectTypes: getRelevantSubjectTypes(requestedArtifactTypes),
       conflicts,
+      pendingConfirmationItems,
     })
     const workflowState = deriveSolutionReviewWorkflowState({
       validationSummary,
@@ -172,6 +205,7 @@ export function evaluateSolutionReviewWorkflow(args: {
     input: sliceInput,
     issues,
     conflicts,
+    pendingConfirmationItems,
   })
 
   return {

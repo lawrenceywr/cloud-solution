@@ -4,6 +4,7 @@ import type { RuntimeContext } from "../../plugin/types"
 import type { WorkerRuntimeContext } from "../../coordinator/types"
 import { runSummarizeDesignGaps } from "../../features"
 import { createSolutionSliceToolArgs } from "../solution-slice-tool-args"
+import { createInternalWorkerRuntimeContext } from "../internal-worker-runtime"
 
 export function createSummarizeDesignGapsTools(args?: {
   context?: RuntimeContext
@@ -16,14 +17,10 @@ export function createSummarizeDesignGapsTools(args?: {
     args: createSolutionSliceToolArgs(),
     execute: async (inputArgs, toolContext) => {
       const execContext: WorkerRuntimeContext | undefined = context?.client
-        ? {
-            client: context.client,
-            parentSessionID: toolContext.sessionID,
-            agent: toolContext.agent,
-            directory: context.directory,
-            worktree: context.worktree ?? context.directory,
-            abort: toolContext.abort,
-          }
+        ? createInternalWorkerRuntimeContext({
+            context,
+            toolContext,
+          })
         : undefined
 
       const result = await runSummarizeDesignGaps({

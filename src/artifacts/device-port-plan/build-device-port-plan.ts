@@ -17,6 +17,8 @@ type ResolvedPortContext = {
   portId: string
   portName: string
   portPurpose?: string
+  portType?: CloudSolutionSliceInput["ports"][number]["portType"]
+  portIndex?: number
 }
 
 type PortConnection = {
@@ -116,6 +118,8 @@ function resolvePortContext(args: {
     portId: port.id,
     portName: port.name,
     portPurpose: port.purpose,
+    portType: port.portType,
+    portIndex: port.portIndex,
   }
 }
 
@@ -204,6 +208,8 @@ function buildRows(input: CloudSolutionSliceInput): DevicePortPlanRow[] {
       portName: resolvedPort.portName,
       portId: resolvedPort.portId,
       portPurpose: resolvedPort.portPurpose,
+      portType: resolvedPort.portType,
+      portIndex: resolvedPort.portIndex,
       connectionRefs: connectionRefs || undefined,
       peerRefs: peerRefs || undefined,
       redundancyGroups: redundancyGroups || undefined,
@@ -213,13 +219,13 @@ function buildRows(input: CloudSolutionSliceInput): DevicePortPlanRow[] {
 
 function buildRowTable(rows: DevicePortPlanRow[]): string {
   const lines = [
-    "| Rack | Rack Units | Device | Port | Purpose | Connections | Peer Endpoints | Redundancy Groups |",
-    "| --- | --- | --- | --- | --- | --- | --- | --- |",
+    "| Rack | Rack Units | Device | Port | Purpose | Port Type | Port Index | Connections | Peer Endpoints | Redundancy Groups |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
   ]
 
   for (const row of rows) {
     lines.push(
-      `| ${row.rackName} (${row.rackId}) | U${row.rackPosition} (${row.rackUnitHeight}U) | ${row.deviceName} (${row.deviceId}) | ${row.portName} (${row.portId}) | ${row.portPurpose ?? "-"} | ${row.connectionRefs ?? "-"} | ${row.peerRefs ?? "-"} | ${row.redundancyGroups ?? "-"} |`,
+      `| ${row.rackName} (${row.rackId}) | U${row.rackPosition} (${row.rackUnitHeight}U) | ${row.deviceName} (${row.deviceId}) | ${row.portName} (${row.portId}) | ${row.portPurpose ?? "-"} | ${row.portType ?? "-"} | ${row.portIndex ?? "-"} | ${row.connectionRefs ?? "-"} | ${row.peerRefs ?? "-"} | ${row.redundancyGroups ?? "-"} |`,
     )
   }
 

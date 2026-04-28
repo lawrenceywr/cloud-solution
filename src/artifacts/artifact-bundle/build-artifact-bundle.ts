@@ -3,6 +3,7 @@ import type {
   ArtifactType,
   CloudSolutionSliceInput,
   GeneratedArtifact,
+  PendingConfirmationItem,
   ValidationIssue,
   ValidationIssueSubjectType,
   ValidationSummary,
@@ -14,6 +15,7 @@ import {
 import {
   buildDeviceCablingTableArtifact,
   buildDesignGapReport,
+  buildDeviceRackLayoutArtifact,
   buildDevicePortPlanArtifact,
   buildIpAllocationTableArtifact,
   buildPortConnectionTableArtifact,
@@ -23,6 +25,7 @@ import { hasBlockingIssues } from "../../validators"
 
 const artifactOrder: ArtifactType[] = [
   "device-cabling-table",
+  "device-rack-layout",
   "device-port-plan",
   "device-port-connection-table",
   "ip-allocation-table",
@@ -41,6 +44,7 @@ function getRelevantSubjectTypes(
 
   if (
     requestedArtifactTypes.includes("device-cabling-table")
+    || requestedArtifactTypes.includes("device-rack-layout")
     || requestedArtifactTypes.includes("device-port-plan")
     || requestedArtifactTypes.includes("device-port-connection-table")
   ) {
@@ -74,6 +78,8 @@ function buildRequestedArtifacts(args: {
     switch (artifactType) {
       case "device-cabling-table":
         return buildDeviceCablingTableArtifact({ input, issues })
+      case "device-rack-layout":
+        return buildDeviceRackLayoutArtifact({ input, issues })
       case "device-port-plan":
         return buildDevicePortPlanArtifact({ input, issues })
       case "device-port-connection-table":
@@ -87,8 +93,13 @@ function buildRequestedArtifacts(args: {
 export function buildArtifactBundleExport(args: {
   input: CloudSolutionSliceInput
   issues: ValidationIssue[]
+  pendingConfirmationItems?: PendingConfirmationItem[]
 }): ArtifactBundleExport {
-  const { input, issues } = args
+  const {
+    input,
+    issues,
+    pendingConfirmationItems = [],
+  } = args
   const validationSummary = buildValidationSummary(issues)
   const requestedArtifactTypes = artifactOrder.filter((artifactType) =>
     input.requirement.artifactRequests.includes(artifactType),
@@ -97,6 +108,7 @@ export function buildArtifactBundleExport(args: {
     input,
     issues,
     relevantSubjectTypes: getRelevantSubjectTypes(requestedArtifactTypes),
+    pendingConfirmationItems,
   })
   const requestedArtifacts = buildRequestedArtifacts({
     requestedArtifactTypes,

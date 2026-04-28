@@ -3,7 +3,10 @@ import type {
   ArtifactType,
   CloudSolutionSliceInput,
   DesignGapSummary,
+  PendingConfirmationItem,
+  ValidationIssueSubjectType,
 } from "../../domain"
+import { PendingConfirmationItemSchema } from "../../domain"
 import { evaluateSolutionReviewWorkflow } from "../../features/solution-review-workflow"
 import { normalizeSolutionToolInput } from "../../normalizers"
 import type { ToolExecuteBeforeOutput } from "../../plugin/types"
@@ -11,6 +14,7 @@ import { validateCloudSolutionModel } from "../../validators"
 
 const ArtifactGenerationToolTypes: Partial<Record<string, ArtifactType>> = {
   generate_device_cabling_table: "device-cabling-table",
+  generate_device_rack_layout: "device-rack-layout",
   generate_device_port_plan: "device-port-plan",
   generate_port_connection_table: "device-port-connection-table",
   generate_ip_allocation_table: "ip-allocation-table",
@@ -20,6 +24,7 @@ const SliceInputToolNames = new Set([
   "draft_topology_model",
   "validate_solution_model",
   "generate_device_cabling_table",
+  "generate_device_rack_layout",
   "generate_device_port_plan",
   "generate_port_connection_table",
   "generate_ip_allocation_table",
@@ -130,4 +135,42 @@ export function collectBlockingIssueCodes(sliceInput: CloudSolutionSliceInput): 
 export function hasLowConfidenceReviewItems(reviewSummary: DesignGapSummary): boolean {
   return reviewSummary.assumptionCount > 0
     || reviewSummary.unresolvedItems.some((item) => item.confidenceState === "unresolved")
+}
+
+function getRelevantSubjectTypesForArtifactType(artifactType: ArtifactType): Set<ValidationIssueSubjectType> {
+  if (artifactType === "ip-allocation-table") {
+    return new Set<ValidationIssueSubjectType>(["requirement", "device", "segment", "allocation"])
+  }
+
+  return new Set<ValidationIssueSubjectType>(["requirement", "device", "rack", "port", "link"])
+}
+
+function extractPendingConfirmationItems(input: Record<string, unknown>): PendingConfirmationItem[] {
+  const rawItems = [
+    ...(Array.isArray(input.pendingConfirmationItems) ? input.pendingConfirmationItems : []),
+    ...(isRecord(input.confirmationSummary) && Array.isArray(input.confirmationSummary.pendingConfirmationItems)
+      ? input.confirmationSummary.pendingConfirmationItems
+      : []),
+  ]
+
+  return rawItems.map((item) => PendingConfirmationItemSchema.parse(item))
+}
+
+export function collectRelevantPendingConfirmationItems(args: {
+  toolName: string
+  input: Record<string, unknown>
+}): PendingConfirmationItem[] {
+  const artifactType = ArtifactGenerationToolTypes[args.toolName]
+  if (!artifactType) {
+    return []
+  }
+
+  const relevantSubjectTypes = getRelevantSubjectTypesForArtifactType(artifactType)
+  return extractPendingConfirmationItems(args.input)
+    .filter((item) => relevantSubjectTypes.has(item.subjectType))
+}
+
+export function buildPendingConfirmationBlockMessage(items: PendingConfirmationItem[]): string {
+  const titles = [...new Set(items.map((item) => item.title))]
+  return `Artifact generation requires review before export: ${titles.join(", ")}`
 }

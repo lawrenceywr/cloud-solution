@@ -2,6 +2,7 @@ import { z } from "zod"
 
 import { runSolutionReviewAssistantInChildSession } from "../../agents"
 import type { WorkerInput, WorkerResult, WorkerRuntimeContext } from "../../coordinator/types"
+import { ConfirmationPacketSchema } from "../../domain"
 
 const SolutionReviewAgentBriefSchema = z.object({
   agentID: z.literal("solution_review_assistant"),
@@ -12,6 +13,7 @@ const SolutionReviewAgentBriefSchema = z.object({
   summary: z.string(),
   blockedItems: z.array(z.string()),
   reviewItems: z.array(z.string()),
+  confirmationPackets: z.array(ConfirmationPacketSchema).default([]),
   exportArtifactNames: z.array(z.string()),
   guardrails: z.array(z.string()),
 })

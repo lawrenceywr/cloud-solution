@@ -61,6 +61,7 @@ export async function runDraftTopologyModel(args: {
     input: normalizedInput,
     issues,
     conflicts,
+    pendingConfirmationItems: preparedInput.confirmationSummary.pendingConfirmationItems ?? [],
   })
 
   return {

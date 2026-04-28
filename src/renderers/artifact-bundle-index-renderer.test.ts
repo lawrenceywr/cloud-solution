@@ -30,6 +30,7 @@ describe("renderArtifactBundleIndex", () => {
         assumptions: [],
         gaps: [],
         unresolvedItems: [],
+        confirmationPackets: [],
         conflicts: [],
         blockingConflictCount: 0,
         warningConflictCount: 0,

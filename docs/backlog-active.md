@@ -1,12 +1,21 @@
 # Active Backlog
 
-**Last Updated:** 2026-04-14
+**Last Updated:** 2026-04-26
 
 ---
 
 ## Active
 
-_No active backlog items._
+### BL-029 - Real Template Physical Completion
+
+- **Goal:** close the remaining physical completeness gaps in real-template runs now that workbook-driven rack, port, and power import foundations are landed
+- **Depends on:** BL-028 (completed) plus the post-roadmap template-import slices already landed on `dev`
+- **Acceptance:**
+  - deterministic workbook import covers the remaining high-value physical facts still missing from current real-template quality runs
+  - project-bound rack power / non-standard rack-U confirmations are explicit inputs rather than hidden assumptions
+  - real-template quality runs retain workbook-derived ports and power while reducing importer-caused physical blockers
+- **Status:** In Progress
+- **Current slice landed:** workbook-driven structured import, project-bound port placement, device power import, rack defaults, real-bundle alias disambiguation for firewall / SDN gateway / TOR, and workbook-derived M9000-CN04 firewall peer-link port binding are complete; workbook-derived plane-type conflicts now surface as structured pending-confirmation items plus operator-facing confirmation packets across review reports, assistant guidance, and handoff output, and direct physical artifact tools still block when those unresolved conflicts remain. Remaining work is reducing the larger non-confirmed physical blocker set that still survives real-template quality runs.
 
 ---
 
@@ -40,8 +49,8 @@ Phase 8 agent-boundary cleanup, formal extraction-agent split, planner-advisory 
 
 **MVP Done Criteria:** ✅ Satisfied
 
-- ✅ 4 artifact types generating from validated model data
-- ✅ SCN-01 to SCN-07 scenario coverage
+- ✅ 5 artifact types generating from validated model data
+- ✅ SCN-01 to SCN-08 scenario coverage
 - ✅ Normalization, validation, and confirmation gating
 - ✅ Review/export workflow with multi-worker orchestration
 - ✅ Front-door intake tools
