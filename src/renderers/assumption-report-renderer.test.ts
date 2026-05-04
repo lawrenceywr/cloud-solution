@@ -116,7 +116,7 @@ describe("renderAssumptionReport", () => {
           kind: "template-plane-type-conflict",
           severity: "warning",
           title: "Confirm <plane> & review | packet",
-          requiredDecision: "Confirm the intended plane/link type for server-a:eth0 ↔ switch-a:1/1, then update the source/structured input accordingly.",
+          requiredDecision: "Operator must choose the authoritative plane/link type for server-a:eth0 ↔ switch-a:1/1: storage or business, then update the source/structured input accordingly.",
           currentAmbiguity: "Workbook-derived <link> & endpoint mismatch\nneeds operator review | now.",
           subjectType: "link",
           subjectId: "link-a",
@@ -133,7 +133,7 @@ describe("renderAssumptionReport", () => {
 
     expect(artifact.content).toContain("## Confirmation Packets")
     expect(artifact.content).toContain("### 1. Confirm &lt;plane&gt; &amp; review \\| packet")
-    expect(artifact.content).toContain("- Required Decision: Confirm the intended plane/link type for server-a:eth0 ↔ switch-a:1/1, then update the source/structured input accordingly.")
+    expect(artifact.content).toContain("- Required Decision: Operator must choose the authoritative plane/link type for server-a:eth0 ↔ switch-a:1/1: storage or business, then update the source/structured input accordingly.")
     expect(artifact.content).toContain("- Current Ambiguity: Workbook-derived &lt;link&gt; &amp; endpoint mismatch <br> needs operator review \\| now.")
     expect(artifact.content).toContain("- Suggested Action: Confirm with the operator &amp; update the structured input &lt;exactly&gt;.")
     expect(artifact.content).toContain("- Endpoints: server-a:eth0 ↔ switch-a:1/1")

@@ -7,6 +7,10 @@ import type {
 import { DeviceRackLayoutRowSchema } from "../../domain"
 import { hasBlockingIssues } from "../../validators"
 
+const powerValidationExcludedRoles = new Set([
+  "cable-manager",
+])
+
 function buildIssueTable(issues: ValidationIssue[]): string {
   const lines = [
     "| Severity | Code | Message | Entities |",
@@ -79,6 +83,56 @@ function buildRowTable(rows: DeviceRackLayoutRow[]): string {
   return lines.join("\n")
 }
 
+function buildPowerReserveRows(input: CloudSolutionSliceInput): string[] {
+  const rackMap = new Map(input.racks.map((rack) => [rack.id, rack]))
+  const occupiedRackIds = new Set(
+    input.devices
+      .filter((device) => device.rackId && rackMap.has(device.rackId))
+      .map((device) => device.rackId!),
+  )
+  const powerByRack = new Map<string, number>()
+
+  for (const device of input.devices) {
+    if (!device.rackId || typeof device.powerWatts !== "number" || powerValidationExcludedRoles.has(device.role)) {
+      continue
+    }
+
+    powerByRack.set(device.rackId, (powerByRack.get(device.rackId) ?? 0) + device.powerWatts)
+  }
+
+  return [...powerByRack.entries()]
+    .map(([rackId, totalPowerWatts]) => {
+      const rack = rackMap.get(rackId)
+      if (!rack?.maxPowerKw || totalPowerWatts <= rack.maxPowerKw * 1000 * 0.8) {
+        return undefined
+      }
+
+      const reserveRack = [
+        ...(rack.adjacentRackIds ?? []),
+        ...(rack.adjacentColumnRackIds ?? []),
+      ]
+        .map((adjacentRackId) => rackMap.get(adjacentRackId))
+        .filter((adjacentRack): adjacentRack is CloudSolutionSliceInput["racks"][number] => !!adjacentRack)
+        .filter((adjacentRack) => !occupiedRackIds.has(adjacentRack.id))
+        .sort((left, right) => left.id.localeCompare(right.id))[0]
+
+      if (!reserveRack) {
+        return undefined
+      }
+
+      return `| ${rack.name} (${rack.id}) | ${totalPowerWatts} | ${rack.maxPowerKw} | ${reserveRack.name} (${reserveRack.id}) | adjacent empty rack reserved for power-sharing; do not place devices |`
+    })
+    .filter((row): row is string => typeof row === "string")
+}
+
+function buildPowerReserveTable(rows: string[]): string {
+  return [
+    "| Source Rack | Planned Power (W) | Rack Budget (kW) | Reserved Adjacent Rack | Convention |",
+    "| --- | --- | --- | --- | --- |",
+    ...rows,
+  ].join("\n")
+}
+
 export function buildDeviceRackLayoutArtifact(args: {
   input: CloudSolutionSliceInput
   issues: ValidationIssue[]
@@ -101,6 +155,10 @@ export function buildDeviceRackLayoutArtifact(args: {
   } else {
     const rows = buildRows(input)
     sections.push("", "## Rack Layout Rows", buildRowTable(rows))
+    const powerReserveRows = buildPowerReserveRows(input)
+    if (powerReserveRows.length > 0) {
+      sections.push("", "## Power Sharing Reserve", buildPowerReserveTable(powerReserveRows))
+    }
   }
 
   return {

@@ -198,7 +198,7 @@ describe("buildArtifactBundleExport", () => {
       expect.arrayContaining([
         expect.objectContaining({
           id: "template-plane-type-conflict|server-a:eth0|switch-a:1/1",
-          requiredDecision: "Confirm the intended plane/link type for the affected connection ↔ the affected connection, then update the source/structured input accordingly.",
+          requiredDecision: "Operator must choose the authoritative plane/link type for the affected connection ↔ the affected connection: storage or business, then update the source/structured input accordingly.",
         }),
       ]),
     )

@@ -44,6 +44,12 @@ const powerValidationExcludedRoles = new Set([
   "cable-manager",
 ])
 
+const serverDualHomeLeafRoles = new Set([
+  "leaf",
+  "switch",
+  "tor",
+])
+
 const severityRank: Record<ValidationIssue["severity"], number> = {
   blocking: 0,
   warning: 1,
@@ -1147,6 +1153,11 @@ function validateRackPowerBudgets(args: {
   const issues: ValidationIssue[] = []
   const placedDevices = powerValidatedDevices.filter((device) => device.rackId && rackMap.has(device.rackId))
   const rackIdsWithPlacedDevices = [...new Set(placedDevices.map((device) => device.rackId!))]
+  const occupiedRackIds = new Set(
+    devices
+      .filter((device) => device.rackId && rackMap.has(device.rackId))
+      .map((device) => device.rackId!),
+  )
 
   for (const rackId of rackIdsWithPlacedDevices) {
     const rack = rackMap.get(rackId)
@@ -1212,6 +1223,36 @@ function validateRackPowerBudgets(args: {
       continue
     }
 
+    const adjacentRackIds = [
+      ...(rack.adjacentRackIds ?? []),
+      ...(rack.adjacentColumnRackIds ?? []),
+    ]
+    const reserveRack = adjacentRackIds
+      .map((adjacentRackId) => rackMap.get(adjacentRackId))
+      .filter((adjacentRack): adjacentRack is Rack => !!adjacentRack)
+      .filter((adjacentRack) => !occupiedRackIds.has(adjacentRack.id))
+      .sort((left, right) => left.id.localeCompare(right.id))[0]
+
+    if (reserveRack) {
+      issues.push(
+        createIssue({
+          code: "rack_power_adjacent_reserve_required",
+          message: `Rack ${rackId} exceeds the 80% power threshold with ${totalPowerWatts}W planned against a ${rack.maxPowerKw}kW budget; adjacent rack ${reserveRack.id} must remain empty as a power-sharing reserve.`,
+          severity: "informational",
+          subjectType: "rack",
+          subjectId: rackId,
+          path: "racks[].adjacentRackIds",
+          entityRefs: [
+            `rack:${rackId}`,
+            `rack:${reserveRack.id}`,
+          ],
+          idSuffix: `${rackId}:${reserveRack.id}`,
+          blocking: false,
+        }),
+      )
+      continue
+    }
+
     issues.push(
       createIssue({
         code: "rack_power_threshold_exceeded",
@@ -1226,6 +1267,138 @@ function validateRackPowerBudgets(args: {
             .filter((device) => device.rackId === rackId && typeof device.powerWatts === "number")
             .map((device) => `device:${device.id}`),
         ],
+      }),
+    )
+  }
+
+  return issues
+}
+
+function expectedServerPortType(portIndex: number): Port["portType"] | undefined {
+  if (portIndex === 1) {
+    return "business"
+  }
+
+  if (portIndex === 2) {
+    return "storage"
+  }
+
+  return undefined
+}
+
+function expectedLeafServerPortType(portIndex: number): Port["portType"] | undefined {
+  if (portIndex >= 1 && portIndex <= 20) {
+    return "business"
+  }
+
+  if (portIndex >= 21 && portIndex <= 40) {
+    return "storage"
+  }
+
+  return undefined
+}
+
+function validateServerLeafPortPlaneConventions(args: {
+  devices: Device[]
+  ports: Port[]
+  links: Link[]
+}): ValidationIssue[] {
+  const { devices, ports, links } = args
+  const deviceMap = new Map(devices.map((device) => [device.id, device]))
+  const portMap = new Map(ports.map((port) => [port.id, port]))
+  const issues: ValidationIssue[] = []
+
+  for (const port of ports) {
+    const device = deviceMap.get(port.deviceId)
+    if (device?.role !== "server" || typeof port.portIndex !== "number") {
+      continue
+    }
+
+    const expectedPortType = expectedServerPortType(port.portIndex)
+    if (!expectedPortType || port.portType === expectedPortType) {
+      continue
+    }
+
+    issues.push(
+      createIssue({
+        code: "server_leaf_port_plane_convention_mismatch",
+        message: `Server port ${port.id} uses portIndex ${port.portIndex}; index 1 must be business plane and index 2 must be storage plane.`,
+        severity: "blocking",
+        subjectType: "port",
+        subjectId: port.id,
+        path: "ports[].portIndex",
+        entityRefs: [`device:${device.id}`, `port:${port.id}`],
+        idSuffix: `${port.id}:server-${expectedPortType}`,
+      }),
+    )
+  }
+
+  for (const link of links) {
+    if (!link.redundancyGroup || (link.linkType !== "business" && link.linkType !== "storage")) {
+      continue
+    }
+
+    const endpointAPort = portMap.get(link.endpointA.portId)
+    const endpointBPort = portMap.get(link.endpointB.portId)
+    if (!endpointAPort || !endpointBPort) {
+      continue
+    }
+
+    const endpointADevice = deviceMap.get(endpointAPort.deviceId)
+    const endpointBDevice = deviceMap.get(endpointBPort.deviceId)
+    const serverEndpoint = endpointADevice?.role === "server"
+      ? { device: endpointADevice, port: endpointAPort, peerDevice: endpointBDevice, peerPort: endpointBPort }
+      : endpointBDevice?.role === "server"
+        ? { device: endpointBDevice, port: endpointBPort, peerDevice: endpointADevice, peerPort: endpointAPort }
+        : undefined
+
+    if (!serverEndpoint || serverEndpoint.device.redundancyIntent === "single-homed") {
+      continue
+    }
+
+    const serverExpectedPortType = typeof serverEndpoint.port.portIndex === "number"
+      ? expectedServerPortType(serverEndpoint.port.portIndex)
+      : undefined
+    if (serverExpectedPortType && serverEndpoint.port.portType !== serverExpectedPortType) {
+      issues.push(
+        createIssue({
+          code: "server_leaf_port_plane_convention_mismatch",
+          message: `Server dual-homed link ${link.id} uses server port ${serverEndpoint.port.id} on index ${serverEndpoint.port.portIndex}; expected ${serverExpectedPortType} plane.`,
+          severity: "blocking",
+          subjectType: "link",
+          subjectId: link.id,
+          path: "ports[].portIndex",
+          entityRefs: [`link:${link.id}`, `device:${serverEndpoint.device.id}`, `port:${serverEndpoint.port.id}`],
+          idSuffix: `${link.id}:${serverEndpoint.port.id}:server-${serverExpectedPortType}`,
+        }),
+      )
+    }
+
+    if (!serverEndpoint.peerDevice || !serverDualHomeLeafRoles.has(serverEndpoint.peerDevice.role)) {
+      continue
+    }
+
+    const leafExpectedPortType = typeof serverEndpoint.peerPort.portIndex === "number"
+      ? expectedLeafServerPortType(serverEndpoint.peerPort.portIndex)
+      : undefined
+    if (leafExpectedPortType && serverEndpoint.peerPort.portType === leafExpectedPortType) {
+      continue
+    }
+
+    issues.push(
+      createIssue({
+        code: "server_leaf_port_plane_convention_mismatch",
+        message: `Leaf-side server dual-homing port ${serverEndpoint.peerPort.id} uses portIndex ${serverEndpoint.peerPort.portIndex ?? "missing"}; indexes 1-20 must be business plane and 21-40 must be storage plane.`,
+        severity: "blocking",
+        subjectType: "link",
+        subjectId: link.id,
+        path: "ports[].portIndex",
+        entityRefs: [
+          `link:${link.id}`,
+          `device:${serverEndpoint.peerDevice.id}`,
+          `port:${serverEndpoint.peerPort.id}`,
+        ],
+        idSuffix: `${link.id}:${serverEndpoint.peerPort.id}:leaf-${leafExpectedPortType ?? "invalid-index"}`,
       }),
     )
   }
@@ -1419,8 +1592,8 @@ function validateMlagPortSymmetry(args: {
       continue
     }
 
-    const peerPortIndexes = new Set<number>()
-    const peerHaGroups = new Set<string>()
+    const peerPortIndexesByType = new Map<string, Set<number>>()
+    const peerHaGroupsByType = new Map<string, Set<string>>()
 
     for (const link of groupedLinks) {
       const endpointAPort = portMap.get(link.endpointA.portId)
@@ -1431,15 +1604,29 @@ function validateMlagPortSymmetry(args: {
 
       const peerPort = endpointAPort.deviceId === deviceId ? endpointBPort : endpointAPort
       const peerDevice = deviceMap.get(peerPort.deviceId)
+      const peerPlane = peerPort.portType ?? link.linkType
+      if (!peerPlane) {
+        continue
+      }
+
       if (typeof peerPort.portIndex === "number") {
+        const peerPortIndexes = peerPortIndexesByType.get(peerPlane) ?? new Set<number>()
         peerPortIndexes.add(peerPort.portIndex)
+        peerPortIndexesByType.set(peerPlane, peerPortIndexes)
       }
       if (peerDevice?.highAvailabilityGroup) {
+        const peerHaGroups = peerHaGroupsByType.get(peerPlane) ?? new Set<string>()
         peerHaGroups.add(peerDevice.highAvailabilityGroup)
+        peerHaGroupsByType.set(peerPlane, peerHaGroups)
       }
     }
 
-    if (peerHaGroups.size !== 1 || peerPortIndexes.size <= 1) {
+    const hasMismatchedPlane = [...peerPortIndexesByType.entries()].some(([peerPlane, peerPortIndexes]) => {
+      const peerHaGroups = peerHaGroupsByType.get(peerPlane) ?? new Set<string>()
+      return peerHaGroups.size === 1 && peerPortIndexes.size > 1
+    })
+
+    if (!hasMismatchedPlane) {
       continue
     }
 
@@ -2033,6 +2220,14 @@ export function validateCloudSolutionModel(
 
   issues.push(
     ...validateMlagPortSymmetry({
+      devices: input.devices,
+      ports: input.ports,
+      links: input.links,
+    }),
+  )
+
+  issues.push(
+    ...validateServerLeafPortPlaneConventions({
       devices: input.devices,
       ports: input.ports,
       links: input.links,

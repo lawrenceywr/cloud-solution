@@ -74,6 +74,94 @@ describe("buildDeviceRackLayoutArtifact", () => {
     expect(artifact.content).toContain("350")
   })
 
+  test("surfaces adjacent empty rack power-sharing reserve conventions", () => {
+    const input = {
+      ...createBaseSliceInput(),
+      racks: [
+        {
+          ...createBaseSliceInput().racks[0]!,
+          adjacentRackIds: ["rack-b"],
+        },
+        {
+          id: "rack-b",
+          name: "rack-b",
+          uHeight: 42,
+          maxPowerKw: 7,
+          adjacentRackIds: ["rack-a"],
+          adjacentColumnRackIds: [],
+          sourceRefs: [],
+          statusConfidence: "confirmed" as const,
+        },
+      ],
+      devices: createBaseSliceInput().devices.map((device) =>
+        device.id === "device-server-a"
+          ? {
+              ...device,
+              powerWatts: 5300,
+            }
+          : device,
+      ),
+    }
+    const artifact = buildDeviceRackLayoutArtifact({
+      input,
+      issues: [],
+    })
+
+    expect(artifact.content).toContain("## Power Sharing Reserve")
+    expect(artifact.content).toContain("rack-b (rack-b)")
+    expect(artifact.content).toContain("adjacent empty rack reserved for power-sharing")
+  })
+
+  test("does not surface a power reserve for racks containing excluded-role devices", () => {
+    const baseInput = createBaseSliceInput()
+    const input = {
+      ...baseInput,
+      racks: [
+        {
+          ...baseInput.racks[0]!,
+          adjacentRackIds: ["rack-b"],
+        },
+        {
+          id: "rack-b",
+          name: "rack-b",
+          uHeight: 42,
+          maxPowerKw: 7,
+          adjacentRackIds: ["rack-a"],
+          adjacentColumnRackIds: [],
+          sourceRefs: [],
+          statusConfidence: "confirmed" as const,
+        },
+      ],
+      devices: [
+        ...baseInput.devices.map((device) =>
+          device.id === "device-server-a"
+            ? {
+                ...device,
+                powerWatts: 5300,
+              }
+            : device,
+        ),
+        {
+          id: "device-cable-manager-b",
+          name: "cable-manager-b",
+          role: "cable-manager",
+          rackId: "rack-b",
+          rackPosition: 1,
+          rackUnitHeight: 1,
+          sourceRefs: [],
+          statusConfidence: "confirmed" as const,
+        },
+      ],
+    }
+    const artifact = buildDeviceRackLayoutArtifact({
+      input,
+      issues: [],
+    })
+
+    expect(artifact.content).not.toContain("## Power Sharing Reserve")
+    expect(artifact.content).not.toContain("adjacent empty rack reserved for power-sharing")
+  })
+
   test("builds a blocked summary when rack validation issues exist", () => {
     const issues: ValidationIssue[] = [
       {

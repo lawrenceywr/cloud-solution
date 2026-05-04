@@ -105,7 +105,7 @@ describe("runSolutionReviewAssistant", () => {
           kind: "template-plane-type-conflict",
           severity: "warning",
           title: "template plane type conflict requires confirmation",
-          requiredDecision: "Confirm the intended plane/link type for server-a:eth0 ↔ switch-a:1/1, then update the source/structured input accordingly.",
+          requiredDecision: "Operator must choose the authoritative plane/link type for server-a:eth0 ↔ switch-a:1/1: storage or business, then update the source/structured input accordingly.",
           currentAmbiguity: "Workbook-derived link ambiguity remains unresolved.",
           subjectType: "link",
           subjectId: "link-a",
@@ -124,7 +124,7 @@ describe("runSolutionReviewAssistant", () => {
 
     expect(response.orchestrationState).toBe("review_required")
     expect(response.checklist).toContain(
-      "Confirm the intended plane/link type for server-a:eth0 ↔ switch-a:1/1, then update the source/structured input accordingly.",
+      "Operator must choose the authoritative plane/link type for server-a:eth0 ↔ switch-a:1/1: storage or business, then update the source/structured input accordingly.",
     )
     expect(response.checklist).toContain(
       "Confirm with the operator and update the structured input.",

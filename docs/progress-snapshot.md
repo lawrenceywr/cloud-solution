@@ -18,6 +18,9 @@
 ### SCN-08 Rule Depth + XLSX Workbook Preprocessing (NEW ✅)
 - ✅ high-reliability validation now goes beyond the initial foundation and blocks missing HA roles, incomplete HA pairs, invalid peer-link/uplink endpoint types, typed plane mismatches, and missing rack/device power metadata when the rack-layout slice requires power evaluation
 - ✅ dual-homed high-reliability peers now must resolve to one complete HA pair before the MLAG symmetry rule is considered satisfied
+- ✅ deterministic server/leaf port-plane conventions are now enforced for the validated dual-homed business/storage path: server `portIndex 1 -> business`, `2 -> storage`, and server-facing leaf `1-20 -> business`, `21-40 -> storage`
+- ✅ rack power overflow above the 80% threshold now reserves an adjacent empty rack when one exists, keeps that rack explicitly empty as a power-sharing reserve, and blocks only when no such reserve rack is available
+- ✅ physical artifacts now surface validated server dual-homing as `bond mode4 / LACP` intent and surface adjacent empty rack power reserves explicitly in rack-layout output
 - ✅ workbook-style `.xlsx` inputs are now explicitly locked into the existing MarkItDown preprocessing path, with multi-sheet markdown boundaries preserved as advisory extraction input
 - ✅ regression tests now cover multi-sheet workbook markdown flowing from `document-source-markdown` into the extraction child session without creating a new truth path
 

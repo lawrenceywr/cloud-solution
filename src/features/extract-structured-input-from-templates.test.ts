@@ -228,7 +228,7 @@ describe("runExtractStructuredInputFromTemplates", () => {
     )
   })
 
-  test("imports device power from inventory plus parameter workbooks and defaults racks to 48U/7kW", async () => {
+  test("imports device power from inventory plus parameter workbooks and preserves rack fallback warnings", async () => {
     const workspace = createTempWorkspace()
     const pluginConfig = loadPluginConfig(process.cwd())
     const templateSources = [
@@ -335,11 +335,8 @@ describe("runExtractStructuredInputFromTemplates", () => {
         expect.objectContaining({ name: "业务POD-千兆带内管理TOR-H3C S5560X-54C-EI-11", powerWatts: 55 }),
       ]),
     )
-    expect(result.warnings).toContain(
-      "Defaulted rack E15 to 48U because no explicit rack height was provided for this project.",
-    )
-    expect(result.warnings).toContain(
-      "Defaulted rack E15 to 7kW because no explicit rack power limit was provided; project confirmation is still required.",
+    expect(result.warnings).not.toContain(
+      "Defaulted 2 racks to 7kW because no explicit rack power limit was provided; project confirmation is still required: E14, E15.",
     )
   })
 
@@ -2883,7 +2880,7 @@ describe("runExtractStructuredInputFromTemplates", () => {
       expect.objectContaining({ name: "Z01", uHeight: 45, maxPowerKw: 7 }),
     ])
     expect(result.warnings).not.toContain(
-      "Defaulted rack Z01 to 48U because no explicit rack height was provided for this project.",
+      "Defaulted 1 rack to 48U because no explicit rack height was provided for this project: Z01.",
     )
   })
 
@@ -3150,6 +3147,86 @@ describe("runExtractStructuredInputFromTemplates", () => {
 
     expect(result.warnings).toContain(
       "No device parameter-response workbook was recognized, so device power could not be resolved from required user input.",
+    )
+  })
+
+  test("leaves ambiguous server business and storage template links untyped", async () => {
+    const workspace = createTempWorkspace()
+    const pluginConfig = loadPluginConfig(process.cwd())
+    const templateSources = [
+      {
+        kind: "document" as const,
+        ref: "fixtures/cabling-template.xlsx",
+        note: "Cable planning template",
+      },
+      {
+        kind: "document" as const,
+        ref: "fixtures/rack-layout-template.xlsx",
+        note: "Rack layout template",
+      },
+    ]
+    const { client } = createFakeCoordinatorClient({
+      promptTexts: [
+        JSON.stringify({
+          workerId: "document-source-markdown",
+          status: "success",
+          output: {
+            convertedDocuments: [
+              {
+                sourceRef: templateSources[0],
+                markdown: [
+                  "## 服务器业务存储连线",
+                  "",
+                  "| 线缆编号 | 线缆名称 | 线缆程式 | 线缆 条数 | 线缆长度 (米) | 线缆 总长度 （米） | 起始端 | Unnamed: 7 | 目的端 | Unnamed: 9 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                  "| NaN | NaN | NaN | NaN | NaN | NaN | 机架 | 设备名称/型号 | 机架 | 设备名称/型号 |",
+                  "| 1 | 以太网电缆 | DAC | 1 | 5 | 5 | E15 | 业务POD-B1H服务器-CS5280H3-1 | E15 | 业务POD-业务/存储接入交换机-H3C S6805-54HF-1 |",
+                ].join("\n"),
+              },
+              {
+                sourceRef: templateSources[1],
+                markdown: [
+                  "## Sheet1",
+                  "",
+                  "| Unnamed: 0 | E列15柜 | 机柜(E15） | Unnamed: 3 | 7kw |",
+                  "| --- | --- | --- | --- | --- |",
+                  "| NaN | NaN | 业务POD-B1H服务器-CS5280H3-1 | 17 | NaN |",
+                  "| NaN | NaN | 业务POD-业务/存储接入交换机-H3C S6805-54HF-1 | 42 | NaN |",
+                ].join("\n"),
+              },
+            ],
+            conversionWarnings: [],
+          },
+          recommendations: [],
+        }),
+      ],
+    })
+
+    const result = await runExtractStructuredInputFromTemplates({
+      input: {
+        requirement: {
+          id: "req-template-ambiguous-business-storage-1",
+          projectName: "Template Ambiguous Business Storage Example",
+          scopeType: "data-center",
+          artifactRequests: ["device-cabling-table"],
+          sourceRefs: [],
+          statusConfidence: "confirmed",
+        },
+        documentSources: templateSources,
+      },
+      pluginConfig,
+      runtime: createWorkerRuntimeContext(client, {
+        directory: workspace,
+        worktree: workspace,
+      }),
+      rootDirectory: workspace,
+    })
+
+    expect(result.draftInput.structuredInput.links).toContainEqual(
+      expect.objectContaining({
+        purpose: "template-server-business-storage",
+        linkType: undefined,
+      }),
     )
   })
 

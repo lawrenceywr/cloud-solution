@@ -17,6 +17,54 @@ type ResolvedEndpoint = {
   portName: string
 }
 
+function buildLacpIntentRows(input: CloudSolutionSliceInput): string[] {
+  const deviceMap = new Map(input.devices.map((device) => [device.id, device]))
+  const portMap = new Map(input.ports.map((port) => [port.id, port]))
+  const linkIdsByServerAndGroup = new Map<string, string[]>()
+
+  for (const link of input.links) {
+    if (!link.redundancyGroup) {
+      continue
+    }
+
+    const endpointAPort = portMap.get(link.endpointA.portId)
+    const endpointBPort = portMap.get(link.endpointB.portId)
+    const endpointADevice = endpointAPort ? deviceMap.get(endpointAPort.deviceId) : undefined
+    const endpointBDevice = endpointBPort ? deviceMap.get(endpointBPort.deviceId) : undefined
+    const serverDevice = endpointADevice?.role === "server"
+      ? endpointADevice
+      : endpointBDevice?.role === "server"
+        ? endpointBDevice
+        : undefined
+
+    if (!serverDevice || serverDevice.redundancyIntent === "single-homed") {
+      continue
+    }
+
+    const key = `${serverDevice.id}:${link.redundancyGroup}`
+    const linkIds = linkIdsByServerAndGroup.get(key) ?? []
+    linkIds.push(link.id)
+    linkIdsByServerAndGroup.set(key, linkIds)
+  }
+
+  return [...linkIdsByServerAndGroup.entries()]
+    .filter(([, linkIds]) => linkIds.length > 1)
+    .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+    .map(([key, linkIds]) => {
+      const [serverDeviceId, redundancyGroup] = key.split(":")
+      const serverDevice = deviceMap.get(serverDeviceId ?? "")
+      return `| ${serverDevice?.name ?? serverDeviceId} (${serverDeviceId}) | ${redundancyGroup} | ${linkIds.sort((left, right) => left.localeCompare(right)).join(", ")} | bond mode4 / LACP |`
+    })
+}
+
+function buildLacpIntentTable(rows: string[]): string {
+  return [
+    "| Server | Redundancy Group | Links | Intent |",
+    "| --- | --- | --- | --- |",
+    ...rows,
+  ].join("\n")
+}
+
 function buildIssueTable(issues: ValidationIssue[]): string {
   const lines = [
     "| Severity | Code | Message | Entities |",
@@ -205,6 +253,10 @@ export function buildDeviceCablingTableArtifact(args: {
   } else {
     const rows = buildRows(input)
     sections.push("", "## Cabling Rows", buildRowTable(rows))
+    const lacpIntentRows = buildLacpIntentRows(input)
+    if (lacpIntentRows.length > 0) {
+      sections.push("", "## Server Dual-Homing Intent", buildLacpIntentTable(lacpIntentRows))
+    }
   }
 
   return {

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 
 import type { CloudSolutionSliceInput, ValidationIssue } from "../../domain"
+import { createScn08HighReliabilityRackLayoutFixture } from "../../scenarios/fixtures"
 import { buildDevicePortPlanArtifact } from "./build-device-port-plan"
 
 function createBaseSliceInput(): CloudSolutionSliceInput {
@@ -124,5 +125,20 @@ describe("buildDevicePortPlanArtifact", () => {
     expect(artifact.content).toContain("Status: blocked")
     expect(artifact.content).toContain("## Blocking Conditions")
     expect(artifact.content).toContain("rack_position_overlap")
+  })
+
+  test("annotates server port redundancy groups with bond mode4 LACP intent", () => {
+    const artifact = buildDevicePortPlanArtifact({
+      input: {
+        ...createScn08HighReliabilityRackLayoutFixture(),
+        requirement: {
+          ...createScn08HighReliabilityRackLayoutFixture().requirement,
+          artifactRequests: ["device-port-plan"],
+        },
+      },
+      issues: [],
+    })
+
+    expect(artifact.content).toContain("server-a-business-dual-home (bond mode4 / LACP)")
   })
 })

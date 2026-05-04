@@ -910,10 +910,13 @@ describe("createCloudSolutionRuntime", () => {
     })
     const parsed = JSON.parse(result)
 
-    expect(parsed.issues).toEqual([])
+    expect(parsed.issues.map((issue: { code: string }) => issue.code)).toEqual([
+      "rack_power_adjacent_reserve_required",
+    ])
     expect(parsed.artifact.name).toBe("device-rack-layout.md")
     expect(parsed.artifact.content).toContain("SCN-08 High Reliability Rack Layout")
     expect(parsed.artifact.content).toContain("tor-pair-a")
+    expect(parsed.artifact.content).toContain("rack-c (rack-c)")
   })
 
   test("invokes template import through the runtime kernel and roundtrips into draft_topology_model", async () => {
@@ -996,6 +999,7 @@ describe("createCloudSolutionRuntime", () => {
   test("rejects runtime rack-layout generation when blocking validation issues remain", async () => {
     const runtime = createCloudSolutionRuntime(process.cwd())
     const fixture = createScn08HighReliabilityRackLayoutFixture()
+    fixture.racks = fixture.racks.filter((rack) => rack.id !== "rack-c")
     fixture.devices.push({
       id: "device-storage-b",
       name: "storage-b",

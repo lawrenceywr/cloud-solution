@@ -173,6 +173,7 @@ Renderers should consume row objects, not raw domain entities.
 - A `Rack` placement must reference valid devices and non-overlapping positions.
 - An `IpAllocation` belongs to a valid `NetworkSegment`.
 - Artifact rows must reference validated source entities.
+- Deterministic dual-homed server links may surface one server-side `bond mode4 / LACP` intent when multiple validated legs share the same redundancy group.
 
 ## 5. Validation Principles
 
@@ -196,6 +197,9 @@ The validator should check at least:
 - links do not connect impossible endpoint types
 - media and speed combinations are allowed
 - breakout assumptions are explicit
+- when a server port exposes deterministic `portIndex` data, index `1` maps to the business plane and index `2` maps to the storage plane
+- when a server dual-homed business or storage link lands on a server-facing leaf port, leaf indexes `1-20` map to business and `21-40` map to storage
+- rack power above the 80% threshold must either reserve an adjacent empty rack that remains unoccupied for power sharing or produce a blocking threshold issue
 
 ### Addressing Consistency
 
@@ -221,6 +225,8 @@ All five primary outputs must be generated from the same validated model:
 5. IP allocation table
 
 If the model is not complete enough for one of them, the system should emit a gap report rather than guess.
+
+Physical artifacts may surface deterministic operational conventions derived from validated facts, such as server `bond mode4 / LACP` intent and adjacent empty rack power reserves, but they must not invent missing ports, links, racks, or allocations.
 
 ## 7. Suggested Status Flow
 

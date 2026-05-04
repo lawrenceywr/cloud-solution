@@ -248,12 +248,18 @@ describe("scenario acceptance", () => {
     })
 
     expect(validation.valid).toBe(true)
-    expect(validation.issues).toEqual([])
+    expect(validation.issues.map((issue: { code: string }) => issue.code)).toEqual([
+      "rack_power_adjacent_reserve_required",
+    ])
     expect(rackLayout.artifact.content).toContain("Status: ready")
     expect(rackLayout.artifact.content).toContain("tor-pair-a")
-    expect(rackLayout.artifact.content).toContain("900")
+    expect(rackLayout.artifact.content).toContain("5300")
+    expect(rackLayout.artifact.content).toContain("rack-c (rack-c)")
+    expect(rackLayout.artifact.content).toContain("adjacent empty rack reserved for power-sharing")
     expect(cabling.artifact.content).toContain("CAB-001")
     expect(cabling.artifact.content).toContain("business")
+    expect(cabling.artifact.content).toContain("storage")
+    expect(cabling.artifact.content).toContain("bond mode4 / LACP")
     expect(cabling.artifact.content).toContain("server-a-business-dual-home")
   })
 

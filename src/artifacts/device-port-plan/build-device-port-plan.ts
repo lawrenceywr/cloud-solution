@@ -74,6 +74,47 @@ function buildConnectionMap(input: CloudSolutionSliceInput) {
   return connectionMap
 }
 
+function buildServerLacpGroups(input: CloudSolutionSliceInput): Map<string, string> {
+  const deviceMap = new Map(input.devices.map((device) => [device.id, device]))
+  const portMap = new Map(input.ports.map((port) => [port.id, port]))
+  const groupCountsByServer = new Map<string, Map<string, number>>()
+
+  for (const link of input.links) {
+    if (!link.redundancyGroup) {
+      continue
+    }
+
+    const endpointAPort = portMap.get(link.endpointA.portId)
+    const endpointBPort = portMap.get(link.endpointB.portId)
+    const endpointADevice = endpointAPort ? deviceMap.get(endpointAPort.deviceId) : undefined
+    const endpointBDevice = endpointBPort ? deviceMap.get(endpointBPort.deviceId) : undefined
+    const serverDevice = endpointADevice?.role === "server"
+      ? endpointADevice
+      : endpointBDevice?.role === "server"
+        ? endpointBDevice
+        : undefined
+
+    if (!serverDevice || serverDevice.redundancyIntent === "single-homed") {
+      continue
+    }
+
+    const groupCounts = groupCountsByServer.get(serverDevice.id) ?? new Map<string, number>()
+    groupCounts.set(link.redundancyGroup, (groupCounts.get(link.redundancyGroup) ?? 0) + 1)
+    groupCountsByServer.set(serverDevice.id, groupCounts)
+  }
+
+  const lacpGroups = new Map<string, string>()
+  for (const [serverDeviceId, groupCounts] of groupCountsByServer.entries()) {
+    for (const [redundancyGroup, count] of groupCounts.entries()) {
+      if (count > 1) {
+        lacpGroups.set(`${serverDeviceId}:${redundancyGroup}`, "bond mode4 / LACP")
+      }
+    }
+  }
+
+  return lacpGroups
+}
+
 function resolvePortContext(args: {
   portId: string
   rackMap: Map<string, CloudSolutionSliceInput["racks"][number]>
@@ -167,6 +208,7 @@ function formatPeerRef(args: {
 function buildRows(input: CloudSolutionSliceInput): DevicePortPlanRow[] {
   const { rackMap, deviceMap, portMap } = resolveMaps(input)
   const connectionMap = buildConnectionMap(input)
+  const serverLacpGroups = buildServerLacpGroups(input)
   const resolvedPorts = input.ports
     .map((port) => resolvePortContext({
       portId: port.id,
@@ -186,7 +228,12 @@ function buildRows(input: CloudSolutionSliceInput): DevicePortPlanRow[] {
       connections
         .map((connection) => connection.redundancyGroup)
         .filter((value): value is string => typeof value === "string" && value.length > 0),
-    )].join(", ")
+    )]
+      .map((redundancyGroup) => {
+        const lacpIntent = serverLacpGroups.get(`${resolvedPort.deviceId}:${redundancyGroup}`)
+        return lacpIntent ? `${redundancyGroup} (${lacpIntent})` : redundancyGroup
+      })
+      .join(", ")
     const peerRefs = connections
       .map((connection) =>
         formatPeerRef({

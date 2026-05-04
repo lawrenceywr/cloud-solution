@@ -121,7 +121,7 @@ describe("buildSolutionReviewAgentBrief", () => {
       expect.arrayContaining([
         expect.objectContaining({
           id: `template-plane-type-conflict|${endpointADevice.name}:${endpointAPort.name}|${endpointBDevice.name}:${endpointBPort.name}`,
-          requiredDecision: `Confirm the intended plane/link type for ${endpointADevice.name}:${endpointAPort.name} ↔ ${endpointBDevice.name}:${endpointBPort.name}, then update the source/structured input accordingly.`,
+          requiredDecision: `Operator must choose the authoritative plane/link type for ${endpointADevice.name}:${endpointAPort.name} ↔ ${endpointBDevice.name}:${endpointBPort.name}: storage or business, then update the source/structured input accordingly.`,
           sourceRefs: [],
         }),
       ]),

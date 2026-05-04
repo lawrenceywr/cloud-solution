@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test"
 
-import { createScn01SingleRackConnectivityFixture } from "../../scenarios/fixtures"
+import {
+  createScn01SingleRackConnectivityFixture,
+  createScn08HighReliabilityRackLayoutFixture,
+} from "../../scenarios/fixtures"
 import { validateCloudSolutionModel } from "../../validators"
 import { buildDesignGapReport } from "./build-design-gap-report"
 
@@ -125,7 +128,7 @@ describe("buildDesignGapReport", () => {
         kind: "template-plane-type-conflict",
         subjectType: "link",
         subjectId: "link-server-a-switch-a",
-        requiredDecision: "Confirm the intended plane/link type for server-a:eth0 ↔ switch-a:xe-0/0/1, then update the source/structured input accordingly.",
+        requiredDecision: "Operator must choose the authoritative plane/link type for server-a:eth0 ↔ switch-a:xe-0/0/1: storage or business, then update the source/structured input accordingly.",
         currentAmbiguity: "Workbook-derived link server-a:eth0 ↔ switch-a:xe-0/0/1 resolved conflicting explicit plane types (storage vs business); preserving this connection as ambiguous and requiring project confirmation.",
         suggestedAction: "Confirm the intended plane/link type with the operator and update the source or structured input to match that decision.",
         endpoints: {
@@ -135,7 +138,7 @@ describe("buildDesignGapReport", () => {
       }),
     ])
     expect(summary.artifact.content).toContain("## Confirmation Packets")
-    expect(summary.artifact.content).toContain("- Required Decision: Confirm the intended plane/link type for server-a:eth0 ↔ switch-a:xe-0/0/1, then update the source/structured input accordingly.")
+    expect(summary.artifact.content).toContain("- Required Decision: Operator must choose the authoritative plane/link type for server-a:eth0 ↔ switch-a:xe-0/0/1: storage or business, then update the source/structured input accordingly.")
     expect(summary.artifact.content).toContain("- Suggested Action: Confirm the intended plane/link type with the operator and update the source or structured input to match that decision.")
   })
 
@@ -164,5 +167,69 @@ describe("buildDesignGapReport", () => {
 
     expect(summary.confirmationPackets).toEqual([])
     expect(summary.unresolvedItems).toEqual([])
+  })
+
+  test("aggregates physical fact confirmation issues into one operator decision packet", () => {
+    const baseInput = createScn01SingleRackConnectivityFixture()
+    const input = {
+      ...baseInput,
+      devices: baseInput.devices.map((device) => ({
+        ...device,
+        statusConfidence: "inferred" as const,
+      })),
+      ports: baseInput.ports.map((port) => ({
+        ...port,
+        statusConfidence: "inferred" as const,
+      })),
+    }
+    const summary = buildDesignGapReport({
+      input,
+      issues: validateCloudSolutionModel(input),
+    })
+
+    const physicalFactIssues = summary.gaps.filter((gap) => gap.title === "physical_fact_not_confirmed")
+    const physicalFactPackets = summary.confirmationPackets.filter((packet) => packet.kind === "physical-fact-confirmation-required")
+
+    expect(physicalFactIssues.length).toBeGreaterThan(1)
+    expect(physicalFactPackets).toHaveLength(1)
+    expect(physicalFactPackets[0]).toEqual(
+      expect.objectContaining({
+        id: "physical-fact-confirmation-required|req-scn-01",
+        severity: "blocking",
+        subjectType: "requirement",
+        subjectId: "req-scn-01",
+        requiredDecision: "Operator must decide whether all unconfirmed physical facts in this planning slice are authoritative for final physical artifacts, or update/remove them before export.",
+      }),
+    )
+  })
+
+  test("creates rack-level operator decision packets for power threshold issues", () => {
+    const baseInput = createScn08HighReliabilityRackLayoutFixture()
+    const input = {
+      ...baseInput,
+      racks: baseInput.racks
+        .filter((rack) => rack.id !== "rack-c")
+        .map((rack) => rack.id === "rack-a"
+          ? { ...rack, maxPowerKw: 1 }
+          : rack),
+    }
+    const summary = buildDesignGapReport({
+      input,
+      issues: validateCloudSolutionModel(input),
+    })
+
+    expect(summary.gaps.map((gap) => gap.title)).toContain("rack_power_threshold_exceeded")
+    expect(summary.confirmationPackets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "rack-power-threshold-exceeded|rack-a",
+          kind: "rack-power-threshold-exceeded",
+          severity: "blocking",
+          subjectType: "rack",
+          subjectId: "rack-a",
+          requiredDecision: "Operator must decide whether rack rack-a's planned load is an approved power-threshold exception, or revise the rack budget/device placement before export.",
+        }),
+      ]),
+    )
   })
 })

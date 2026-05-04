@@ -335,20 +335,43 @@ describe("validateCloudSolutionModel", () => {
     expect(hasBlockingIssues(issues)).toBe(true)
   })
 
-  test("blocks racks that exceed the 80 percent power threshold", () => {
+  test("reserves an adjacent empty rack when a rack exceeds the 80 percent power threshold", () => {
+    const baseInput = createScn08HighReliabilityRackLayoutFixture()
+    const issues = validateCloudSolutionModel(baseInput)
+
+    const reserveIssue = issues.find((issue) => issue.code === "rack_power_adjacent_reserve_required")
+
+    expect(reserveIssue?.severity).toBe("informational")
+    expect(reserveIssue?.blocking).toBe(false)
+    expect(reserveIssue?.entityRefs).toEqual(["rack:rack-a", "rack:rack-c"])
+    expect(issues.map((issue) => issue.code)).not.toContain("rack_power_threshold_exceeded")
+    expect(hasBlockingIssues(issues)).toBe(false)
+  })
+
+  test("blocks racks that exceed the 80 percent power threshold without an adjacent empty rack", () => {
+    const baseInput = createScn08HighReliabilityRackLayoutFixture()
+    const issues = validateCloudSolutionModel({
+      ...baseInput,
+      racks: baseInput.racks.filter((rack) => rack.id !== "rack-c"),
+    })
+
+    expect(issues.map((issue) => issue.code)).toContain("rack_power_threshold_exceeded")
+    expect(hasBlockingIssues(issues)).toBe(true)
+  })
+
+  test("does not treat racks with excluded-role devices as empty power reserves", () => {
     const baseInput = createScn08HighReliabilityRackLayoutFixture()
     const issues = validateCloudSolutionModel({
       ...baseInput,
       devices: [
         ...baseInput.devices,
         {
-          id: "device-storage-b",
-          name: "storage-b",
-          role: "storage",
-          rackId: "rack-a",
-          rackPosition: 20,
-          rackUnitHeight: 4,
-          powerWatts: 5000,
+          id: "device-cable-manager-reserve",
+          name: "reserve-rack-cable-manager",
+          role: "cable-manager",
+          rackId: "rack-c",
+          rackPosition: 1,
+          rackUnitHeight: 1,
           sourceRefs: [],
           statusConfidence: "confirmed",
         },
@@ -356,6 +379,7 @@ describe("validateCloudSolutionModel", () => {
     })
 
     expect(issues.map((issue) => issue.code)).toContain("rack_power_threshold_exceeded")
+    expect(issues.map((issue) => issue.code)).not.toContain("rack_power_adjacent_reserve_required")
     expect(hasBlockingIssues(issues)).toBe(true)
   })
 
@@ -378,14 +402,41 @@ describe("validateCloudSolutionModel", () => {
     const baseInput = createScn08HighReliabilityRackLayoutFixture()
     const issues = validateCloudSolutionModel({
       ...baseInput,
-      ports: baseInput.ports.map((port) =>
-        port.id === "port-tor-b-business-1"
-          ? {
-              ...port,
-              portIndex: 2,
-            }
-          : port,
-      ),
+      ports: [
+        ...baseInput.ports,
+        {
+          id: "port-tor-a-business-2",
+          deviceId: "device-tor-a",
+          name: "eth1/2",
+          purpose: "server-business-extra-a",
+          portType: "business" as const,
+          portIndex: 2,
+          sourceRefs: [],
+          statusConfidence: "confirmed" as const,
+        },
+        {
+          id: "port-server-a-business-3",
+          deviceId: "device-server-a",
+          name: "eth2",
+          purpose: "business-extra-a",
+          portType: "business" as const,
+          sourceRefs: [],
+          statusConfidence: "confirmed" as const,
+        },
+      ],
+      links: [
+        ...baseInput.links,
+        {
+          id: "link-server-a-business-extra-a",
+          endpointA: { portId: "port-server-a-business-3" },
+          endpointB: { portId: "port-tor-a-business-2" },
+          purpose: "server-a-business-extra-primary",
+          linkType: "business" as const,
+          redundancyGroup: "server-a-business-dual-home",
+          sourceRefs: [],
+          statusConfidence: "confirmed" as const,
+        },
+      ],
     })
 
     expect(issues.map((issue) => issue.code)).toContain("mlag_port_index_mismatch")
@@ -1035,6 +1086,60 @@ describe("validateCloudSolutionModel", () => {
       expect(hasBlockingIssues(issues)).toBe(true)
     },
   )
+
+  test("blocks server NIC indexes that do not match business and storage plane conventions", () => {
+    const baseInput = createScn08HighReliabilityRackLayoutFixture()
+    const issues = validateCloudSolutionModel({
+      ...baseInput,
+      ports: baseInput.ports.map((port) =>
+        port.id === "port-server-a-storage-2"
+          ? {
+              ...port,
+              portType: "business",
+            }
+          : port,
+      ),
+    })
+
+    expect(issues.map((issue) => issue.code)).toContain("server_leaf_port_plane_convention_mismatch")
+    expect(hasBlockingIssues(issues)).toBe(true)
+  })
+
+  test("blocks leaf-side server dual-homing ports outside the business and storage ranges", () => {
+    const baseInput = createScn08HighReliabilityRackLayoutFixture()
+    const issues = validateCloudSolutionModel({
+      ...baseInput,
+      ports: baseInput.ports.map((port) =>
+        port.id === "port-tor-b-storage-21"
+          ? {
+              ...port,
+              portIndex: 41,
+            }
+          : port,
+      ),
+    })
+
+    expect(issues.map((issue) => issue.code)).toContain("server_leaf_port_plane_convention_mismatch")
+    expect(hasBlockingIssues(issues)).toBe(true)
+  })
+
+  test("blocks leaf-side server dual-homing ports with missing enforced port indexes", () => {
+    const baseInput = createScn08HighReliabilityRackLayoutFixture()
+    const issues = validateCloudSolutionModel({
+      ...baseInput,
+      ports: baseInput.ports.map((port) =>
+        port.id === "port-tor-b-storage-21"
+          ? {
+              ...port,
+              portIndex: undefined,
+            }
+          : port,
+      ),
+    })
+
+    expect(issues.map((issue) => issue.code)).toContain("server_leaf_port_plane_convention_mismatch")
+    expect(hasBlockingIssues(issues)).toBe(true)
+  })
 
   test("blocks typed ports that connect through untyped links", () => {
     const baseInput = createScn08HighReliabilityRackLayoutFixture()

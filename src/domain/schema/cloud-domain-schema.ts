@@ -279,6 +279,8 @@ export const ValidationIssueCodeSchema = z.enum([
   "uplink_link_endpoint_invalid",
   "redundancy_peer_ha_group_invalid",
   "mlag_port_index_mismatch",
+  "server_leaf_port_plane_convention_mismatch",
+  "rack_power_adjacent_reserve_required",
   "conflict_duplicate_device",
   "conflict_contradictory_attribute",
   "conflict_duplicate_port_id",
@@ -427,10 +429,16 @@ export const ConfirmationPacketEndpointsSchema = z.object({
   endpointB: PendingConfirmationEndpointSchema.optional(),
 })
 
+export const ConfirmationPacketKindSchema = z.enum([
+  "template-plane-type-conflict",
+  "physical-fact-confirmation-required",
+  "rack-power-threshold-exceeded",
+])
+
 export const ConfirmationPacketSchema = z.object({
   id: z.string(),
-  kind: PendingConfirmationItemKindSchema,
-  severity: z.enum(["warning", "informational"]),
+  kind: ConfirmationPacketKindSchema,
+  severity: z.enum(["blocking", "warning", "informational"]),
   title: z.string(),
   requiredDecision: z.string(),
   currentAmbiguity: z.string(),
@@ -543,6 +551,7 @@ export type CandidateFactPromotion = z.infer<typeof CandidateFactPromotionSchema
 export type PendingConfirmationItemKind = z.infer<typeof PendingConfirmationItemKindSchema>
 export type PendingConfirmationItem = z.infer<typeof PendingConfirmationItemSchema>
 export type ConfirmationPacketEndpoints = z.infer<typeof ConfirmationPacketEndpointsSchema>
+export type ConfirmationPacketKind = z.infer<typeof ConfirmationPacketKindSchema>
 export type ConfirmationPacket = z.infer<typeof ConfirmationPacketSchema>
 export type CandidateFactConfirmationSummary = z.infer<typeof CandidateFactConfirmationSummarySchema>
 export type SolutionRequirement = z.infer<typeof SolutionRequirementSchema>

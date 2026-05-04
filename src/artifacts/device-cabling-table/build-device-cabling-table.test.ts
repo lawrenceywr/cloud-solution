@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 
 import type { CloudSolutionSliceInput, ValidationIssue } from "../../domain"
+import { createScn08HighReliabilityRackLayoutFixture } from "../../scenarios/fixtures"
 import { buildDeviceCablingTableArtifact } from "./build-device-cabling-table"
 
 function createBaseSliceInput(): CloudSolutionSliceInput {
@@ -114,5 +115,16 @@ describe("buildDeviceCablingTableArtifact", () => {
     expect(artifact.content).toContain("Status: blocked")
     expect(artifact.content).toContain("## Blocking Conditions")
     expect(artifact.content).toContain("device_rack_required")
+  })
+
+  test("surfaces server dual-homing as bond mode4 LACP intent", () => {
+    const artifact = buildDeviceCablingTableArtifact({
+      input: createScn08HighReliabilityRackLayoutFixture(),
+      issues: [],
+    })
+
+    expect(artifact.content).toContain("## Server Dual-Homing Intent")
+    expect(artifact.content).toContain("server-a-business-dual-home")
+    expect(artifact.content).toContain("bond mode4 / LACP")
   })
 })

@@ -1312,7 +1312,9 @@ describe("createTools", () => {
     )
     const parsed = JSON.parse(response)
 
-    expect(parsed.issues).toEqual([])
+    expect(parsed.issues.map((issue: { code: string }) => issue.code)).toEqual([
+      "rack_power_adjacent_reserve_required",
+    ])
     expect(parsed.artifact.name).toBe("device-rack-layout.md")
     expect(parsed.artifact.content).toContain("Status: ready")
     expect(parsed.artifact.content).toContain("tor-pair-a")

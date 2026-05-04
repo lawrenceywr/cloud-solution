@@ -11,7 +11,10 @@ import type {
 } from "../../domain"
 import { DesignGapSummarySchema } from "../../domain"
 import { renderAssumptionReport, renderConflictReport } from "../../renderers"
-import { buildConfirmationPackets } from "./build-confirmation-packets"
+import {
+  buildConfirmationPackets,
+  buildIssueConfirmationPackets,
+} from "./build-confirmation-packets"
 
 type ReviewSubject = {
   subjectType: ValidationIssueSubjectType
@@ -205,8 +208,15 @@ export function buildDesignGapReport(args: {
     ...pendingConfirmationRows.unresolvedItems
       .filter((row) => !relevantSubjectTypeSet || relevantSubjectTypeSet.has(row.subjectType)),
   ].sort(compareRows)
-  const confirmationPackets = pendingConfirmationRows.confirmationPackets
-    .filter((item) => !relevantSubjectTypeSet || relevantSubjectTypeSet.has(item.subjectType))
+  const relevantIssues = issues.filter((issue) => !relevantSubjectTypeSet || relevantSubjectTypeSet.has(issue.subjectType))
+  const issueConfirmationPackets = buildIssueConfirmationPackets({
+    input,
+    issues: relevantIssues,
+  })
+  const confirmationPackets = [
+    ...pendingConfirmationRows.confirmationPackets,
+    ...issueConfirmationPackets,
+  ].filter((item) => !relevantSubjectTypeSet || relevantSubjectTypeSet.has(item.subjectType))
   const reviewRequired =
     issueRows.gaps.length > 0 || assumptions.length > 0 || unresolvedItems.length > 0 || conflicts.length > 0
 

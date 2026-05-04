@@ -260,11 +260,13 @@ A high-reliability data-center planning slice with paired ToR devices, explicit 
 
 ### Expected Validation Behavior
 
-- rack power above the 80% threshold blocks output
+- rack power above the 80% threshold reserves an adjacent empty rack for power sharing when one exists, and that reserve rack must remain empty
+- rack power above the 80% threshold blocks output when no adjacent empty rack can be reserved
 - rack power metadata must be complete before high-reliability power validation can run
 - high-availability device pairs must resolve to explicit primary/secondary roles
 - HA device pairs must be in adjacent racks or adjacent columns
 - typed business/storage/in-band/oob links must stay consistent with typed endpoint ports
+- deterministic server dual-homing port conventions must hold: server index `1` is business, server index `2` is storage, and server-facing leaf indexes `1-20` are business while `21-40` are storage
 - peer-link, inter-switch, and uplink link types must terminate on network-infrastructure devices only
 - dual-homed-required peer devices must resolve to one complete HA pair before MLAG symmetry checks can pass
 - MLAG-style redundant links must keep peer-facing port indexes symmetric
@@ -273,6 +275,8 @@ A high-reliability data-center planning slice with paired ToR devices, explicit 
 
 - rack layout rows include HA grouping and power metadata
 - cabling output preserves cable metadata and typed link semantics
+- server dual-homed artifact output surfaces one `bond mode4 / LACP` intent for validated multi-leg redundancy groups
+- rack layout output explicitly identifies any adjacent empty rack reserved for power sharing
 - invalid power, adjacency, or MLAG symmetry inputs are blocked deterministically
 - checked-in workbook templates can be converted into deterministic draft `structuredInput` through the existing markdown-preprocessing path
 - unsupported workbook kinds stay advisory with explicit warnings instead of guessed structured facts

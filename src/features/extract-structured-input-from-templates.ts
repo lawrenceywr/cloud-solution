@@ -1181,6 +1181,10 @@ function hydratePowerForDevice(args: {
       return
     }
 
+    if (device.role === "cable-manager") {
+      return
+    }
+
     if (inventoryProfile && state.parameterPowerProfiles.length > 0) {
       state.warnings.push(
         `Inventory matched device ${deviceName}, but no parameter-response workbook row provided deterministic power for it.`,
@@ -1271,6 +1275,13 @@ function inferRoleFromDeviceName(deviceName: string): string {
     return "storage"
   }
   return "device"
+}
+
+function inferRackPlacementPreference(deviceName: string): "adjacent-empty-rack" | "default" {
+  if (deviceName.includes("服务器") || deviceName.includes("存储") || deviceName.includes("阵列")) {
+    return "adjacent-empty-rack"
+  }
+  return "default"
 }
 
 function parseRackCoordinate(rackName: string): { row: string, column: number } | undefined {
@@ -1481,6 +1492,7 @@ function chooseRackCandidate(args: {
   powerByRack: Map<string, number>
 }): { rack: MutableRack, rackPosition: number } | undefined {
   const veryHighPower = typeof args.device.powerWatts === "number" && args.device.powerWatts >= 5000
+  const preferAdjacentEmptyRack = inferRackPlacementPreference(args.device.name) === "adjacent-empty-rack"
   const safeRackCandidates = [...args.state.racks.values()].filter((rack) => {
     const thresholdWatts = typeof rack.maxPowerKw === "number" ? rack.maxPowerKw * 1000 * 0.8 : Number.POSITIVE_INFINITY
     const projectedPower = (args.powerByRack.get(rack.name) ?? 0) + (args.device.powerWatts ?? 0)
@@ -1515,6 +1527,10 @@ function chooseRackCandidate(args: {
       }
 
       score += Math.max(0, 20 - (args.powerByRack.get(rack.name) ?? 0) / 500)
+
+      if ((veryHighPower || preferAdjacentEmptyRack) && hasEmptyAdjacentRack({ rack, occupancyByRack: args.occupancyByRack })) {
+        score += 30
+      }
 
       return { rack, rackPosition, score }
     })
@@ -1614,7 +1630,10 @@ function chooseAdjacentRackPair(args: {
       const firstProjectedPower = (args.powerByRack.get(firstRack.name) ?? 0) + (args.firstDevice.powerWatts ?? 0)
       const secondThresholdWatts = typeof secondRack.maxPowerKw === "number" ? secondRack.maxPowerKw * 1000 * 0.8 : Number.POSITIVE_INFINITY
       const secondProjectedPower = (args.powerByRack.get(secondRack.name) ?? 0) + (args.secondDevice.powerWatts ?? 0)
+      const firstHasEmptyAdjacentRack = hasEmptyAdjacentRack({ rack: firstRack, occupancyByRack: args.occupancyByRack })
+      const secondHasEmptyAdjacentRack = hasEmptyAdjacentRack({ rack: secondRack, occupancyByRack: args.occupancyByRack })
       const safe = firstProjectedPower <= firstThresholdWatts && secondProjectedPower <= secondThresholdWatts
+      const adjacentEmptyPreference = firstHasEmptyAdjacentRack || secondHasEmptyAdjacentRack
 
       return {
         firstRack,
@@ -1622,6 +1641,7 @@ function chooseAdjacentRackPair(args: {
         firstPosition,
         secondPosition,
         safe,
+        adjacentEmptyPreference,
         score,
       }
     })
@@ -1631,11 +1651,13 @@ function chooseAdjacentRackPair(args: {
       firstPosition: number
       secondPosition: number
       safe: boolean
+      adjacentEmptyPreference: boolean
       score: number
     } => !!candidate)
 
   const safeCandidatePairs = candidatePairs.filter((candidate) => candidate.safe)
-  const candidatePool = safeCandidatePairs.length > 0 ? safeCandidatePairs : candidatePairs
+  const preferredCandidatePairs = safeCandidatePairs.filter((candidate) => candidate.adjacentEmptyPreference)
+  const candidatePool = preferredCandidatePairs.length > 0 ? preferredCandidatePairs : safeCandidatePairs.length > 0 ? safeCandidatePairs : candidatePairs
   candidatePool.sort((left, right) => {
     if (right.score !== left.score) {
       return right.score - left.score
@@ -1885,6 +1907,62 @@ function inferTemplateSemantics(args: {
     endpointBPortBucket: "data",
     purpose: "template-server-business-storage",
   }
+}
+
+function resolveTemplateLinkType(semantics: TemplateSemantics): StructuredInput["links"][number]["linkType"] {
+  if (semantics.linkType) {
+    return semantics.linkType
+  }
+
+  const endpointBuckets = [semantics.endpointAPortBucket, semantics.endpointBPortBucket]
+  const endpointPortTypes = [semantics.endpointAPortType, semantics.endpointBPortType]
+  const bucketPlane = resolveUnambiguousTemplatePlane(endpointBuckets)
+  const portTypePlane = resolveUnambiguousTemplatePlane(endpointPortTypes)
+  if (bucketPlane && (!portTypePlane || portTypePlane === bucketPlane)) {
+    return bucketPlane
+  }
+
+  if (portTypePlane && !bucketPlane) {
+    return portTypePlane
+  }
+
+  const purposePlane = resolvePurposeTemplatePlane(semantics.purpose)
+  if (purposePlane === "storage") {
+    return "storage"
+  }
+
+  if (purposePlane === "business") {
+    return "business"
+  }
+
+  return undefined
+}
+
+function resolvePurposeTemplatePlane(
+  purpose: string,
+): Extract<StructuredInput["links"][number]["linkType"], "business" | "storage"> | undefined {
+  const hasBusiness = purpose.includes("业务") || purpose.includes("business")
+  const hasStorage = purpose.includes("存储") || purpose.includes("storage")
+
+  if (hasBusiness === hasStorage) {
+    return undefined
+  }
+
+  return hasStorage ? "storage" : "business"
+}
+
+function resolveUnambiguousTemplatePlane(
+  values: Array<string | undefined>,
+): Extract<StructuredInput["links"][number]["linkType"], "business" | "storage"> | undefined {
+  const planes = values.filter((value): value is "business" | "storage" => value === "business" || value === "storage")
+  const hasBusiness = planes.includes("business")
+  const hasStorage = planes.includes("storage")
+
+  if (planes.length !== values.length || hasBusiness === hasStorage) {
+    return undefined
+  }
+
+  return hasStorage ? "storage" : "business"
 }
 
 function createTemplateAdapterState(): TemplateAdapterState {
@@ -2498,6 +2576,7 @@ function parseCablingWorkbook(args: {
         endpointADeviceName,
         endpointBDeviceName,
       })
+      semantics.linkType = resolveTemplateLinkType(semantics)
 
       upsertRack(state, endpointARackName, {}, sourceRef)
       upsertRack(state, endpointBRackName, {}, sourceRef)
@@ -2662,20 +2741,29 @@ function detectWorkbookKind(args: {
 }
 
 function buildStructuredInput(state: TemplateAdapterState): StructuredInput {
-  const racks = [...state.racks.values()]
+  const rackValues = [...state.racks.values()]
+  const defaultedRackHeightNames = rackValues
+    .filter((rack) => typeof rack.uHeight !== "number")
+    .map((rack) => rack.name)
+  const defaultedRackPowerNames = rackValues
+    .filter((rack) => typeof rack.maxPowerKw !== "number")
+    .map((rack) => rack.name)
+
+  if (defaultedRackHeightNames.length > 0) {
+    state.warnings.push(
+      `Defaulted ${defaultedRackHeightNames.length} rack${defaultedRackHeightNames.length === 1 ? "" : "s"} to 48U because no explicit rack height was provided for this project: ${defaultedRackHeightNames.join(", ")}.`,
+    )
+  }
+
+  if (defaultedRackPowerNames.length > 0) {
+    state.warnings.push(
+      `Defaulted ${defaultedRackPowerNames.length} rack${defaultedRackPowerNames.length === 1 ? "" : "s"} to 7kW because no explicit rack power limit was provided; project confirmation is still required: ${defaultedRackPowerNames.join(", ")}.`,
+    )
+  }
+
+  const racks = rackValues
     .sort((left, right) => left.name.localeCompare(right.name))
     .map((rack) => {
-      if (typeof rack.uHeight !== "number") {
-        state.warnings.push(
-          `Defaulted rack ${rack.name} to 48U because no explicit rack height was provided for this project.`,
-        )
-      }
-      if (typeof rack.maxPowerKw !== "number") {
-        state.warnings.push(
-          `Defaulted rack ${rack.name} to 7kW because no explicit rack power limit was provided; project confirmation is still required.`,
-        )
-      }
-
       return {
         name: rack.name,
         row: rack.row,
